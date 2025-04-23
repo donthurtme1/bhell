@@ -38,15 +38,7 @@ renderscene(GLuint vertex_array)
 	/* Render sprites in queue on top of world */
 	/* TODO: fix overdraw */
 	glBindVertexArray(vertex_array);
-	for (int i = 0;
-			render_queue[i] > 0;
-			i++)
-	{
-		size_t render_queue_len = 1;
-		glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_BYTE, (void *)0);
-		//glDrawElementsInstanced(GL_TRIANGLES, 6, GL_UNSIGNED_BYTE, render_queue, render_queue_len);
-		break;
-	}
+	glDrawElementsInstanced(GL_TRIANGLES, 6, GL_UNSIGNED_BYTE, (void *)0, 1);
 }
 
 /*
@@ -197,6 +189,7 @@ main(int argc, char *argv[])
 		glViewport(0, 0, w, h);
 
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+		//glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_BYTE, (void *)0);
 		renderscene(vertex_array);
 		SDL_GL_SwapWindow(window);
 
@@ -209,7 +202,6 @@ main(int argc, char *argv[])
 		clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &monotime, NULL);
 	}
 
-	free(render_queue);
 	SDL_Quit();
 	return 0;
 }
