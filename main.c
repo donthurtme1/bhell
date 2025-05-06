@@ -216,6 +216,7 @@ main(int argc, char *argv[])
 		glViewport(0, 0, w, h);
 
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+		//glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_BYTE, (void *)0);
 		renderscene(vertex_array);
 		SDL_GL_SwapWindow(window);
 
@@ -228,7 +229,6 @@ main(int argc, char *argv[])
 		clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &monotime, NULL);
 	}
 
-	free(render_queue);
 	SDL_Quit();
 	return 0;
 }
