@@ -8,6 +8,6 @@ layout(location = 0) in vec2 vertex_position;
 
 void main()
 {
-	sprite_positions[gl_InstanceID];
+	//sprite_positions[gl_InstanceID];
 	gl_Position = vec4(vertex_position, 0.0f, 1.0f);
 }
