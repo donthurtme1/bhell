@@ -28,29 +28,33 @@ static __attribute__((aligned(8))) struct {
 static GLuint *render_queue;
 
 void
-renderscene(GLuint vertex_array)
+renderscene(GLuint *vertex_array)
 {
 	GLuint sprite_position_uniform_buffer;
 
-	/* Render current map with offset */
-	/* TODO: check if offset has changed, then redraw the background */
+	glBindVertexArray(vertex_array[0]);
+	glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_BYTE, (void *)0);
+	glBindVertexArray(vertex_array[1]);
+	glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_BYTE, (void *)0);
 
-	/* Render sprites in queue on top of world */
-	/* TODO: fix overdraw */
-	glBindVertexArray(vertex_array);
-	for (int i = 0;
-			render_queue[i] > 0;
-			i++)
-	{
-		size_t render_queue_len = 1;
-		glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_BYTE, (void *)0);
-		//glDrawElementsInstanced(GL_TRIANGLES, 6, GL_UNSIGNED_BYTE, render_queue, render_queue_len);
-		break;
-	}
+	/*
+	 * Draw every sprite with seperate render call
+	 * TODO: minimize amount of render calls
+	 * glDrawElementsInstanced(GL_TRIANGLES, 6, GL_UNSIGNED_BYTE, render_queue, render_queue_len);
+	 */
+	//for (int i = 0;
+	//		render_queue == 0;
+	//		i++)
+	//{
+	//	size_t render_queue_len = 1;
+	//	glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_BYTE, (void *)0);
+	//	break;
+	//}
 }
 
 /*
- * Return a GLuint shader program identifier
+ * Load and compile shaders,
+ * Returns a GLuint representing a shader program
  */
 GLuint
 createprogram()
@@ -145,23 +149,23 @@ main(int argc, char *argv[])
 	glEnable(GL_DEPTH_TEST);
 	glDisable(GL_STENCIL_TEST);
 
-	/* Do shader/OpenGL stuff */
 	GLuint shader_program = createprogram();
 	glUseProgram(shader_program);
 
-	GLuint vertex_array;
-	glCreateVertexArrays(1, &vertex_array);
-	glBindVertexArray(vertex_array);
+	/* Create vertex arrays */
+	GLuint vertex_array[2];
+	glCreateVertexArrays(2, vertex_array);
+	glBindVertexArray(vertex_array[0]);
 
 	float vertex_data[] = {
-		-1.0f, -1.0f,
-		 1.0f, -1.0f,
-		 1.0f,  1.0f,
-		-1.0f,  1.0f,
+		-0.1f, -0.1f,
+		 0.1f, -0.1f,
+		 0.1f,  0.1f,
+		-0.1f,  0.1f,
 	};
-	GLuint vertex_buffer;
-	glGenBuffers(1, &vertex_buffer);
-	glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);
+	GLuint vertex_buffer[2];
+	glGenBuffers(2, vertex_buffer);
+	glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer[0]);
 	glBufferData(GL_ARRAY_BUFFER, sizeof vertex_data, vertex_data, GL_STATIC_DRAW);
 
 	uint8_t index_data[] = {
@@ -171,6 +175,21 @@ main(int argc, char *argv[])
 	glGenBuffers(1, &index_buffer);
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, index_buffer);
 	glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof index_data, index_data, GL_STATIC_DRAW);
+
+	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void *)0);
+	glEnableVertexAttribArray(0);
+
+
+	glBindVertexArray(vertex_array[1]);
+	float vertex_data2[] = {
+		-0.1f + 0.25, -0.1f + 0.25,
+		 0.1f + 0.25, -0.1f + 0.25,
+		 0.1f + 0.25,  0.1f + 0.25,
+		-0.1f + 0.25,  0.1f + 0.25,
+	};
+	glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer[1]);
+	glBufferData(GL_ARRAY_BUFFER, sizeof vertex_data2, vertex_data2, GL_STATIC_DRAW);
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, index_buffer);
 
 	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void *)0);
 	glEnableVertexAttribArray(0);
