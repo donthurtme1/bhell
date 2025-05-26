@@ -1,6 +1,6 @@
-LIBS=-lglut -lSDL3 -lGL
-SHADERS=vertex.glsl fragment.glsl
-WINDOWS=-mwindows -mwin32
+LIBS = `pkg-config --libs gl glut sdl3 cblas` -lm
+SHADERS = vertex.glsl fragment.glsl
+WINDOWS = -mwindows -mwin32
 
 make:
 	sth -o shaders.h $(SHADERS)

@@ -1,3 +1,4 @@
+#include <openblas/cblas.h>
 #include <stdio.h>
 #include <time.h>
 #include "shaders.h"
@@ -6,10 +7,14 @@
 #include <GL/glut.h>
 #include <SDL3/SDL.h>
 
+#define STB_IMAGE_IMPLEMENTATION
+#include <stb/stb_image.h>
+
 #define die(msg) { \
 	fprintf(stderr, "Err: line %d: " msg "\n", __LINE__); \
 	exit(EXIT_FAILURE); \
 }
+#define LENGTH(a) (int)(sizeof(a) / sizeof(a[0]))
 
 static struct {
 	int target_fps;
@@ -17,44 +22,38 @@ static struct {
 	.target_fps = 30, /* Only needs to be small because pokemon game lol */
 };
 
-static __attribute__((aligned(8))) struct {
+static struct {
 	int xpos, ypos;
-} player = {
+} __attribute__((aligned(8))) player = {
 	.xpos = 0,
 	.ypos = 0,
+};
+
+struct render_object {
+	GLuint vertex_array_buffer;
+	float xpos, ypos;
+	void *texture;
 };
 
 /* Points to a list of array buffers to draw  */
 static GLuint *render_queue;
 
+/*
+ * Loop through each vertex array in @vertex_arrays, rendering it to the window.
+ */
 void
-renderscene(GLuint *vertex_array)
+drawsprites(GLuint *vertex_arrays, int nsprites)
 {
-	GLuint sprite_position_uniform_buffer;
+	const uint8_t index_data[] = {
+		0, 1, 2, 2, 3, 0
+	};
 
-	glBindVertexArray(vertex_array[0]);
-	glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_BYTE, (void *)0);
-	glBindVertexArray(vertex_array[1]);
-	glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_BYTE, (void *)0);
-
-	/*
-	 * Draw every sprite with seperate render call
-	 * TODO: minimize amount of render calls
-	 * glDrawElementsInstanced(GL_TRIANGLES, 6, GL_UNSIGNED_BYTE, render_queue, render_queue_len);
-	 */
-	//for (int i = 0;
-	//		render_queue == 0;
-	//		i++)
-	//{
-	//	size_t render_queue_len = 1;
-	//	glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_BYTE, (void *)0);
-	//	break;
-	//}
+	glDrawElementsInstanced(GL_TRIANGLES, 6, GL_UNSIGNED_BYTE, index_data, nsprites);
 }
 
 /*
  * Load and compile shaders,
- * Returns a GLuint representing a shader program
+ * Returns a GLuint representing a shader program.
  */
 GLuint
 createprogram()
@@ -62,7 +61,9 @@ createprogram()
 	int compile_status = 0;
 	int error_occured = 0;
 
-	/* Create and compile shaders */
+	/*
+	 * Create and compile shaders
+	 */
 	GLuint vertex_shader = glCreateShader(GL_VERTEX_SHADER);
 	glShaderSource(vertex_shader, 1, &sth_vertex_src, NULL);
 	glCompileShader(vertex_shader);
@@ -74,6 +75,7 @@ createprogram()
 		glGetShaderInfoLog(vertex_shader, sizeof infolog, &len, infolog);
 		fwrite("Vertex shader: ", sizeof(char), 15, stderr);
 		fwrite(infolog, sizeof(char), len, stderr);
+		putc('\n', stderr);
 		error_occured = 1;
 	}
 
@@ -88,12 +90,15 @@ createprogram()
 		glGetShaderInfoLog(fragment_shader, sizeof infolog, &len, infolog);
 		fwrite("Fragment shader: ", sizeof(char), 17, stderr);
 		fwrite(infolog, sizeof(char), len, stderr);
+		putc('\n', stderr);
 		error_occured = 1;
 	}
 
 	int link_status;
 
-	/* Create and link shader program */
+	/*
+	 * Create and link shader program
+	 */
 	GLuint shader_program = glCreateProgram();
 	glAttachShader(shader_program, vertex_shader);
 	glAttachShader(shader_program, fragment_shader);
@@ -106,6 +111,7 @@ createprogram()
 		glGetShaderInfoLog(fragment_shader, sizeof infolog, &len, infolog);
 		fwrite("Shader Program: ", sizeof(char), 16, stderr);
 		fwrite(infolog, sizeof(char), len, stderr);
+		putc('\n', stderr);
 		error_occured = 1;
 	}
 
@@ -119,10 +125,43 @@ createprogram()
 	return shader_program;
 }
 
+/*
+ * Calls glCreateVertexArrays for @vertex_arrays
+ */
+int
+create_sprite_arrays(GLuint *vertex_arrays, GLuint *vertex_buffers, int narrays)
+{
+	const float vertex_data[] = {
+		/* position		tex_coords */
+		-0.1f, -0.1f,	0.0f, 0.0f,
+		 0.1f, -0.1f,	1.0f, 0.0f,
+		 0.1f,  0.1f,	1.0f, 1.0f,
+		-0.1f,  0.1f,	0.0f, 1.0f,
+	};
+
+	glCreateVertexArrays(narrays, vertex_arrays);
+	glGenBuffers(narrays, vertex_buffers);
+	for (int i = 0; i < narrays; i++)
+	{
+		glBindVertexArray(vertex_arrays[i]);
+		glBindBuffer(GL_ARRAY_BUFFER, vertex_buffers[i]);
+		glBufferData(GL_ARRAY_BUFFER, sizeof vertex_data, vertex_data, GL_STATIC_DRAW);
+
+		glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void *)0);
+		glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void *)8);
+		glEnableVertexAttribArray(0);
+		glEnableVertexAttribArray(1);
+	}
+
+	return 0;
+}
+
 int
 main(int argc, char *argv[])
 {
-	/* Setup SDL and glut */
+	/*
+	 * Setup SDL and glut
+	 */
 	int sdl_result = SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS);
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 4);
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 6);
@@ -131,8 +170,7 @@ main(int argc, char *argv[])
 	SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
 
 	SDL_Window *window = SDL_CreateWindow("sprites", 0, 0,
-			SDL_WINDOW_OPENGL |
-			SDL_WINDOW_RESIZABLE);
+			SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE);
 	if (window == NULL)
 		die("Failed to create window");
 
@@ -152,50 +190,57 @@ main(int argc, char *argv[])
 	GLuint shader_program = createprogram();
 	glUseProgram(shader_program);
 
-	/* Create vertex arrays */
-	GLuint vertex_array[2];
-	glCreateVertexArrays(2, vertex_array);
-	glBindVertexArray(vertex_array[0]);
+	/*
+	 * Create vertex arrays
+	 */
+	GLuint vertex_arrays[2], vertex_buffers[2];
+	create_sprite_arrays(vertex_arrays, vertex_buffers, 2);
 
-	float vertex_data[] = {
-		-0.1f, -0.1f,
-		 0.1f, -0.1f,
-		 0.1f,  0.1f,
-		-0.1f,  0.1f,
+	GLuint position_ubuf;
+	float position_data[] = {
+		0.0f, 0.0f,
+		0.5f, 0.5f
 	};
-	GLuint vertex_buffer[2];
-	glGenBuffers(2, vertex_buffer);
-	glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer[0]);
-	glBufferData(GL_ARRAY_BUFFER, sizeof vertex_data, vertex_data, GL_STATIC_DRAW);
 
-	uint8_t index_data[] = {
-		0, 1, 2, 2, 3, 0
-	};
-	GLuint index_buffer;
-	glGenBuffers(1, &index_buffer);
-	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, index_buffer);
-	glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof index_data, index_data, GL_STATIC_DRAW);
+	glGenBuffers(1, &position_ubuf);
+	glBindBufferBase(GL_UNIFORM_BUFFER, 1, position_ubuf);
+	glBufferData(GL_UNIFORM_BUFFER, sizeof position_data, position_data, GL_DYNAMIC_DRAW);
 
-	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void *)0);
-	glEnableVertexAttribArray(0);
+	/*
+	 * Load textures
+	 */
+	int texwidth[2], texheight[2], texchannels[2];
+	unsigned char *texture_data[2];
+	texture_data[0] = stbi_load("/home/basil/images/gameboy-flower.png",
+			&texwidth[0], &texheight[0], &texchannels[0], 0);
+	texture_data[1] = stbi_load("/home/basil/images/gameboy-flower.png",
+			&texwidth[1], &texheight[1], &texchannels[1], 1);
 
+	GLuint textures[2];
+	glGenTextures(2, textures);
+	for (int i = 0; i < 2; i++)
+	{
+		glActiveTexture(GL_TEXTURE0 + i);
+		glBindTexture(GL_TEXTURE_2D, textures[i]);
 
-	glBindVertexArray(vertex_array[1]);
-	float vertex_data2[] = {
-		-0.1f + 0.25, -0.1f + 0.25,
-		 0.1f + 0.25, -0.1f + 0.25,
-		 0.1f + 0.25,  0.1f + 0.25,
-		-0.1f + 0.25,  0.1f + 0.25,
-	};
-	glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer[1]);
-	glBufferData(GL_ARRAY_BUFFER, sizeof vertex_data2, vertex_data2, GL_STATIC_DRAW);
-	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, index_buffer);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, texwidth[i], texheight[i],
+				0, GL_RGBA, GL_UNSIGNED_BYTE, texture_data[i]);
+		glGenerateMipmap(GL_TEXTURE_2D);
+	}
 
-	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void *)0);
-	glEnableVertexAttribArray(0);
+	/*
+	 * Main loop
+	 */
+	float move_diff[2] = { 0.0f, 0.0f };
+	int input_dirs = 0;
 
 	struct timespec monotime = { .tv_sec = 0, .tv_nsec = 1000000000 / optn.target_fps };
 	int run = 1;
+	int frame_time = 1000000000 / optn.target_fps;
 	while (run > 0) {
 		/* Input */
 		static SDL_Event event;
@@ -205,10 +250,66 @@ main(int argc, char *argv[])
 				case SDL_EVENT_QUIT:
 					run = 0;
 					break;
+				case SDL_EVENT_KEY_DOWN:
+					switch (event.key.key) {
+						case SDLK_DOWN:
+							input_dirs |= 1;
+							move_diff[1] = -0.002f;
+							break;
+						case SDLK_UP:
+							input_dirs |= 2;
+							move_diff[1] = 0.002f;
+							break;
+						case SDLK_LEFT:
+							input_dirs |= 4;
+							move_diff[0] = -0.002f;
+							break;
+						case SDLK_RIGHT:
+							input_dirs |= 8;
+							move_diff[0] = 0.002f;
+							break;
+					}
+					break;
+				case SDL_EVENT_KEY_UP:
+					switch (event.key.key) {
+						case SDLK_DOWN:
+							input_dirs &= ~1;
+							if (input_dirs & 2)
+								move_diff[1] = 0.002f;
+							else
+								move_diff[1] = 0.0f;
+							break;
+						case SDLK_UP:
+							input_dirs &= ~2;
+							if (input_dirs & 1)
+								move_diff[1] = -0.002f;
+							else
+								move_diff[1] = 0.0f;
+							break;
+						case SDLK_LEFT:
+							input_dirs &= ~4;
+							if (input_dirs & 8)
+								move_diff[0] = 0.002f;
+							else
+								move_diff[0] = 0.0f;
+							break;
+						case SDLK_RIGHT:
+							input_dirs &= ~8;
+							if (input_dirs & 4)
+								move_diff[0] = -0.002f;
+							else
+								move_diff[0] = 0.0f;
+							break;
+					}
+					break;
 			}
 		}
 
 		/* Game */
+		position_data[0] += move_diff[0];
+		position_data[1] += move_diff[1];
+		position_data[2] -= 0.001f;
+		glBufferData(GL_UNIFORM_BUFFER, sizeof position_data, position_data, GL_DYNAMIC_DRAW);
 
 		/* Render */
 		static int w, h;
@@ -216,12 +317,11 @@ main(int argc, char *argv[])
 		glViewport(0, 0, w, h);
 
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-		//glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_BYTE, (void *)0);
-		renderscene(vertex_array);
+		drawsprites(vertex_buffers, 2);
 		SDL_GL_SwapWindow(window);
 
 		/* Frame advance */
-		monotime.tv_nsec += (1000000000 / optn.target_fps);
+		monotime.tv_nsec += frame_time;
 		if (monotime.tv_nsec >= 1000000000) {
 			monotime.tv_nsec -= 1000000000;
 			monotime.tv_sec++;
