@@ -9,7 +9,7 @@ struct sprite_data {\n\
 	int tex;\n\
 };\n\
 \n\
-layout(binding = 0) uniform sampler2D sprite_texture_1;\n\
+layout(binding = 0) uniform sampler2D sprite_texture[2];\n\
 layout(binding = 1) uniform sprite_data_uniform {\n\
 	vec2 sprite_positions[2];\n\
 };\n\
@@ -26,7 +26,7 @@ main()\n\
 			vertex_position.x + sprite_positions[gl_InstanceID].x,\n\
 			vertex_position.y + sprite_positions[gl_InstanceID].y,\n\
 			0.0f, 1.0f);\n\
-	frag_colour = texture(sprite_texture_1, texture_coords);\n\
+	frag_colour = texture(sprite_texture[0], texture_coords);\n\
 }\n\
 ";
 

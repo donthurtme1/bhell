@@ -18,8 +18,10 @@
 
 static struct {
 	int target_fps;
+	float target_aspect_ratio;
 } optn = {
-	.target_fps = 30, /* Only needs to be small because pokemon game lol */
+	.target_fps = 100,
+	.target_aspect_ratio = (float)10 / 16,
 };
 
 static struct {
@@ -34,9 +36,6 @@ struct render_object {
 	float xpos, ypos;
 	void *texture;
 };
-
-/* Points to a list of array buffers to draw  */
-static GLuint *render_queue;
 
 /*
  * Loop through each vertex array in @vertex_arrays, rendering it to the window.
@@ -131,12 +130,12 @@ createprogram()
 int
 create_sprite_arrays(GLuint *vertex_arrays, GLuint *vertex_buffers, int narrays)
 {
-	const float vertex_data[] = {
-		/* position		tex_coords */
-		-0.1f, -0.1f,	0.0f, 0.0f,
-		 0.1f, -0.1f,	1.0f, 0.0f,
-		 0.1f,  0.1f,	1.0f, 1.0f,
-		-0.1f,  0.1f,	0.0f, 1.0f,
+	float vertex_data[] = {
+		/* position									tex_coords */
+		-0.02f, -0.02f * optn.target_aspect_ratio,	0.0f, 0.0f,
+		 0.02f, -0.02f * optn.target_aspect_ratio,	1.0f, 0.0f,
+		 0.02f,  0.02f * optn.target_aspect_ratio,	1.0f, 1.0f,
+		-0.02f,  0.02f * optn.target_aspect_ratio,	0.0f, 1.0f,
 	};
 
 	glCreateVertexArrays(narrays, vertex_arrays);
@@ -181,20 +180,30 @@ main(int argc, char *argv[])
 
 	glutInit(&argc, argv);
 
-	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+	glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
 	glCullFace(GL_BACK);
 	glEnable(GL_CULL_FACE);
 	glEnable(GL_DEPTH_TEST);
+	glEnable(GL_SCISSOR_TEST);
 	glDisable(GL_STENCIL_TEST);
 
+	struct { int width, height; } winsize;
+	SDL_GetWindowSize(window, &winsize.width, &winsize.height);
+	glViewport(0, 0, 1080, 1920);
+	glScissor(0, 0, 1080, 1920);
+
+	/*
+	 * Create shader program and vertex arrays
+	 */
 	GLuint shader_program = createprogram();
 	glUseProgram(shader_program);
 
-	/*
-	 * Create vertex arrays
-	 */
 	GLuint vertex_arrays[2], vertex_buffers[2];
 	create_sprite_arrays(vertex_arrays, vertex_buffers, 2);
+
+	GLuint render_framebuffer, output_framebuffer;
+	glGenFramebuffers(1, &render_framebuffer);
+	glGenFramebuffers(1, &output_framebuffer);
 
 	GLuint position_ubuf;
 	float position_data[] = {
@@ -238,7 +247,9 @@ main(int argc, char *argv[])
 	float move_diff[2] = { 0.0f, 0.0f };
 	int input_dirs = 0;
 
-	struct timespec monotime = { .tv_sec = 0, .tv_nsec = 1000000000 / optn.target_fps };
+	struct timespec monotime;
+	clock_gettime(CLOCK_MONOTONIC, &monotime);
+
 	int run = 1;
 	int frame_time = 1000000000 / optn.target_fps;
 	while (run > 0) {
@@ -250,55 +261,76 @@ main(int argc, char *argv[])
 				case SDL_EVENT_QUIT:
 					run = 0;
 					break;
+				case SDL_EVENT_WINDOW_RESIZED:
+					SDL_GetWindowSize(window, &winsize.width, &winsize.height);
+
+					float current_aspect_ratio = (float)winsize.width / winsize.height;
+					if (current_aspect_ratio == optn.target_aspect_ratio) {
+						glViewport(0, 0, winsize.width, winsize.height);
+						glScissor(0, 0, winsize.width, winsize.height);
+					}
+					else if (current_aspect_ratio > optn.target_aspect_ratio) {
+						int width = winsize.height * optn.target_aspect_ratio;
+						int offset = (winsize.width - width) / 2;
+						glViewport(offset, 0, width, winsize.height);
+						glScissor(offset, 0, width, winsize.height);
+					}
+					else {
+						int height = winsize.width / optn.target_aspect_ratio;
+						int offset = (winsize.height - height) / 2;
+						glViewport(0, offset, winsize.width, height);
+						glScissor(0, offset, winsize.width, height);
+					}
+					break;
 				case SDL_EVENT_KEY_DOWN:
 					switch (event.key.key) {
-						case SDLK_DOWN:
-							input_dirs |= 1;
-							move_diff[1] = -0.002f;
-							break;
-						case SDLK_UP:
-							input_dirs |= 2;
-							move_diff[1] = 0.002f;
-							break;
 						case SDLK_LEFT:
-							input_dirs |= 4;
-							move_diff[0] = -0.002f;
+							input_dirs |= 1;
+							move_diff[0] = -1.0f;
 							break;
 						case SDLK_RIGHT:
+							input_dirs |= 2;
+							move_diff[0] = 1.0f;
+							break;
+						case SDLK_DOWN:
+							input_dirs |= 4;
+							move_diff[1] = -1.0f * optn.target_aspect_ratio;
+							break;
+						case SDLK_UP:
 							input_dirs |= 8;
-							move_diff[0] = 0.002f;
+							move_diff[1] = 1.0f * optn.target_aspect_ratio;
 							break;
 					}
 					break;
 				case SDL_EVENT_KEY_UP:
 					switch (event.key.key) {
-						case SDLK_DOWN:
+						case SDLK_LEFT:
 							input_dirs &= ~1;
 							if (input_dirs & 2)
-								move_diff[1] = 0.002f;
-							else
-								move_diff[1] = 0.0f;
-							break;
-						case SDLK_UP:
-							input_dirs &= ~2;
-							if (input_dirs & 1)
-								move_diff[1] = -0.002f;
-							else
-								move_diff[1] = 0.0f;
-							break;
-						case SDLK_LEFT:
-							input_dirs &= ~4;
-							if (input_dirs & 8)
-								move_diff[0] = 0.002f;
+								move_diff[0] = 1.0f;
 							else
 								move_diff[0] = 0.0f;
 							break;
 						case SDLK_RIGHT:
-							input_dirs &= ~8;
-							if (input_dirs & 4)
-								move_diff[0] = -0.002f;
+							input_dirs &= ~2;
+							if (input_dirs & 1)
+								move_diff[0] = -1.0f;
 							else
 								move_diff[0] = 0.0f;
+							break;
+						case SDLK_DOWN:
+							input_dirs &= ~4;
+							if (input_dirs & 8)
+								move_diff[1] = 1.0f * optn.target_aspect_ratio;
+							else
+								move_diff[1] = 0.0f;
+							break;
+						case SDLK_UP:
+							input_dirs &= ~8;
+							if (input_dirs & 4)
+								move_diff[1] = -1.0f * optn.target_aspect_ratio;
+							else
+								move_diff[1] = 0.0f;
 							break;
 					}
 					break;
@@ -306,18 +338,28 @@ main(int argc, char *argv[])
 		}
 
 		/* Game */
-		position_data[0] += move_diff[0];
-		position_data[1] += move_diff[1];
-		position_data[2] -= 0.001f;
+		float velocity = 0.008f;
+		position_data[0] += move_diff[0] * velocity;
+		position_data[1] += move_diff[1] * velocity;
+		position_data[2] -= 0.002f;
 		glBufferData(GL_UNIFORM_BUFFER, sizeof position_data, position_data, GL_DYNAMIC_DRAW);
 
-		/* Render */
-		static int w, h;
-		SDL_GetWindowSize(window, &w, &h);
-		glViewport(0, 0, w, h);
-
+		/*
+		 * Render
+		 */
+		glDisable(GL_SCISSOR_TEST);
+		glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+		glEnable(GL_SCISSOR_TEST);
+		glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+		glBindFramebuffer(GL_READ_FRAMEBUFFER, render_framebuffer);
 		drawsprites(vertex_buffers, 2);
+
+		/* Copy contents from GL_READ_FRAMEBUFFER to GL_DRAW_FRAMEBUFFER
+		 * scaled up by 2 times */
+		//glBlitFramebuffer(0, 0, 304, 540, 0, 0, 608, 1080, GL_COLOR_BUFFER_BIT, GL_NEAREST);
 		SDL_GL_SwapWindow(window);
 
 		/* Frame advance */
@@ -326,7 +368,7 @@ main(int argc, char *argv[])
 			monotime.tv_nsec -= 1000000000;
 			monotime.tv_sec++;
 		}
-		clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &monotime, NULL);
+		while (clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &monotime, NULL) > 0);
 	}
 
 	SDL_Quit();
