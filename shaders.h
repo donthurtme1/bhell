@@ -9,38 +9,50 @@ struct sprite_data {\n\
 	int tex;\n\
 };\n\
 \n\
-layout(binding = 0) uniform sampler2D sprite_texture[2];\n\
+layout(binding = 0) uniform sampler2D sprite_texture;\n\
+\n\
+/*\n\
+ * Uniform variables\n\
+ */\n\
+layout(binding = 0) uniform transform_matrix_uniform {\n\
+	mat3 trans_matrix;\n\
+};\n\
 layout(binding = 1) uniform sprite_data_uniform {\n\
-	vec2 sprite_positions[2];\n\
+	vec2 sprite_positions;\n\
 };\n\
 \n\
+/*\n\
+ * Vertex attributes\n\
+ */\n\
 layout(location = 0) in vec2 vertex_position;\n\
 layout(location = 1) in vec2 texture_coords;\n\
 \n\
-layout(location = 0) out vec4 frag_colour;\n\
+layout(location = 0) out vec2 out_texcoords;\n\
 \n\
 void\n\
 main()\n\
 {\n\
+	vec3 t_sprite_pos = trans_matrix * vec3(sprite_positions, 1.0f);\n\
 	gl_Position = vec4(\n\
-			vertex_position.x + sprite_positions[gl_InstanceID].x,\n\
-			vertex_position.y + sprite_positions[gl_InstanceID].y,\n\
+			vertex_position.x + t_sprite_pos.x,\n\
+			vertex_position.y + t_sprite_pos.y,\n\
 			0.0f, 1.0f);\n\
-	frag_colour = texture(sprite_texture[0], texture_coords);\n\
+	out_texcoords = texture_coords;\n\
 }\n\
 ";
 
 static const char *sth_fragment_src = "\
 #version 460\n\
 \n\
-layout(location = 0) in vec4 frag_colour;\n\
+layout(binding = 0) uniform sampler2D sprite_texture;\n\
+\n\
+layout(location = 0) in vec2 texture_coords;\n\
 \n\
 layout(location = 0) out vec4 output_colour;\n\
 \n\
 void main()\n\
 {\n\
-	//output_colour = vec4(0.8f, 0.1f, 0.1f, 1.0f);\n\
-	output_colour = frag_colour;\n\
+	output_colour = texture(sprite_texture, texture_coords);\n\
 }\n\
 ";
 
