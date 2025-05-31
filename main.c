@@ -34,26 +34,28 @@ static struct OptionData {
 	float target_aspect_ratio;
 } optn = {
 	.target_fps = 100,
-	.target_aspect_ratio = (float)10 / 16,
+	.target_aspect_ratio = (float)40 / 54,
 };
 
 /*
  * Game stuff
  */
 struct Projectile {
-	short xpos, ypos; /* Origin at top left */
-	short width, height; /* Size of hitbox */
+	int xpos, ypos; /* Origin at bottom left */
+	int width, height; /* Size of hitbox */
 	int projectile_id;
 } ALIGN(8);
 
 struct EntityData {
-	short xpos, ypos; /* Origin at top left */
-	short width, height; /* Size of hitbox */
+	int xpos, ypos; /* Origin at bottom left */
+	int width, height; /* Size of hitbox */
 } ALIGN(8);
 
-static struct EntityData player = {
-	.xpos = 0x7fff,
-	.ypos = 0x7fff,
+static struct EntityData player_data = {
+	.xpos = 202 << 6,
+	.ypos = 270 << 6,
+	.width = 2 << 6,
+	.height = 2 << 6,
 };
 
 #include "logic.c"
@@ -65,23 +67,14 @@ collision_check(struct EntityData *player, struct Projectile *enemy_bullets, int
  * Render the player and the player's projectiles
  */
 void
-draw_player_sprites(int nsprites)
+draw_sprites(GLuint vertex_array_obj, int nsprites)
 {
 	const uint8_t index_data[] = {
 		0, 1, 2, 2, 3, 0
 	};
 
+	glBindVertexArray(vertex_array_obj);
 	glDrawElementsInstanced(GL_TRIANGLES, 6, GL_UNSIGNED_BYTE, index_data, nsprites);
-}
-
-void
-draw_enemy_sprites(int nsprites)
-{
-	const uint8_t index_data[] = {
-		0, 1, 2, 2, 3, 0
-	};
-
-	//glDrawElementsInstanced();
 }
 
 /*
@@ -162,7 +155,7 @@ createprogram()
  * Calls glCreateVertexArrays for @vertex_arrays
  */
 int
-create_sprite_arrays(GLuint *vertex_arrays, GLuint *vertex_buffers, int narrays)
+create_sprite_arrays(GLuint *vertex_arrays, GLuint *vertex_buffers)
 {
 	float vertex_data[] = {
 		/* position									tex_coords */
@@ -172,19 +165,17 @@ create_sprite_arrays(GLuint *vertex_arrays, GLuint *vertex_buffers, int narrays)
 		-0.02f,  0.02f * optn.target_aspect_ratio,	0.0f, 0.0f,
 	};
 
-	glCreateVertexArrays(narrays, vertex_arrays);
-	glGenBuffers(narrays, vertex_buffers);
-	for (int i = 0; i < narrays; i++)
-	{
-		glBindVertexArray(vertex_arrays[i]);
-		glBindBuffer(GL_ARRAY_BUFFER, vertex_buffers[i]);
-		glBufferData(GL_ARRAY_BUFFER, sizeof vertex_data, vertex_data, GL_STATIC_DRAW);
+	glCreateVertexArrays(1, vertex_arrays);
+	glGenBuffers(1, vertex_buffers);
 
-		glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void *)0);
-		glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void *)8);
-		glEnableVertexAttribArray(0);
-		glEnableVertexAttribArray(1);
-	}
+	glBindVertexArray(*vertex_arrays);
+	glBindBuffer(GL_ARRAY_BUFFER, *vertex_buffers);
+	glBufferData(GL_ARRAY_BUFFER, sizeof vertex_data, vertex_data, GL_STATIC_DRAW);
+
+	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void *)0);
+	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void *)8);
+	glEnableVertexAttribArray(0);
+	glEnableVertexAttribArray(1);
 
 	return 0;
 }
@@ -231,12 +222,11 @@ main(int argc, char *argv[])
 	 */
 	GLuint shader_program = createprogram();
 	glUseProgram(shader_program);
-	GLuint vertex_arrays[2], vertex_buffers[2];
-	create_sprite_arrays(vertex_arrays, vertex_buffers, 2);
 
-	//GLuint render_framebuffer, output_framebuffer;
-	//glGenFramebuffers(1, &render_framebuffer);
-	//glGenFramebuffers(1, &output_framebuffer);
+	GLuint player_sprite_varray, player_sprite_vbuf,
+		   bullet_sprite_varray, bullet_sprite_vbuf;
+	create_sprite_arrays(&player_sprite_varray, &player_sprite_vbuf);
+	create_sprite_arrays(&bullet_sprite_varray, &bullet_sprite_vbuf);
 
 	/*
 	 * Create uniform buffers
@@ -252,10 +242,18 @@ main(int argc, char *argv[])
 	glNamedBufferData(transform_matrix_ubuf, sizeof transform_matrix, transform_matrix, GL_STATIC_DRAW);
 
 	GLuint player_position_ubuf;
-	float player_data[] = { 0.0f, 0.0f };
 	glGenBuffers(1, &player_position_ubuf);
 	glBindBufferBase(GL_UNIFORM_BUFFER, 1, player_position_ubuf);
-	glNamedBufferData(player_position_ubuf, sizeof player_data, player_data, GL_DYNAMIC_DRAW);
+	glNamedBufferData(player_position_ubuf, sizeof player_data, &player_data, GL_DYNAMIC_DRAW);
+
+	GLuint bullet_position_ubuf;
+	struct Projectile bullet_data = {
+		.xpos = 202 << 6, .ypos = 405 << 6,
+		.width = 1 << 6, .height = 1 << 6,
+	};
+	glGenBuffers(1, &bullet_position_ubuf);
+	glBindBufferBase(GL_UNIFORM_BUFFER, 1, bullet_position_ubuf);
+	glNamedBufferData(bullet_position_ubuf, sizeof bullet_data, &bullet_data, GL_DYNAMIC_DRAW);
 
 	/*
 	 * Load textures
@@ -264,7 +262,7 @@ main(int argc, char *argv[])
 	unsigned char *texture_data[2];
 	texture_data[0] = stbi_load("/home/basil/images/gameboy-flower.png",
 			&texwidth[0], &texheight[0], &texchannels[0], 0);
-	texture_data[1] = stbi_load("/home/basil/images/gameboy-flower.png",
+	texture_data[1] = stbi_load("/home/basil/images/sanrio.png",
 			&texwidth[1], &texheight[1], &texchannels[1], 1);
 
 	GLuint textures[2];
@@ -284,17 +282,9 @@ main(int argc, char *argv[])
 	}
 
 	/*
-	 * Create projectile
-	 */
-	struct Projectile bullet = {
-		.xpos = 0x0800, .ypos = 0x0800,
-		.width = 0x0100, .height = 0x0100,
-	};
-
-	/*
 	 * Main loop
 	 */
-	float move_diff[2] = { 0.0f, 0.0f };
+	int move_diff[2] = { 0, 0 };
 	int input_dirs = 0;
 
 	struct timespec monotime;
@@ -336,19 +326,19 @@ main(int argc, char *argv[])
 					switch (event.key.key) {
 						case SDLK_S:
 							input_dirs |= 1;
-							move_diff[0] = -1.0f;
+							move_diff[0] = -1;
 							break;
 						case SDLK_F:
 							input_dirs |= 2;
-							move_diff[0] = 1.0f;
+							move_diff[0] = 1;
 							break;
 						case SDLK_D:
 							input_dirs |= 4;
-							move_diff[1] = -1.0f * optn.target_aspect_ratio;
+							move_diff[1] = -1;
 							break;
 						case SDLK_A:
 							input_dirs |= 8;
-							move_diff[1] = 1.0f * optn.target_aspect_ratio;
+							move_diff[1] = 1;
 							break;
 					}
 					break;
@@ -357,30 +347,30 @@ main(int argc, char *argv[])
 						case SDLK_S:
 							input_dirs &= ~1;
 							if (input_dirs & 2)
-								move_diff[0] = 1.0f;
+								move_diff[0] = 1;
 							else
-								move_diff[0] = 0.0f;
+								move_diff[0] = 0;
 							break;
 						case SDLK_F:
 							input_dirs &= ~2;
 							if (input_dirs & 1)
-								move_diff[0] = -1.0f;
+								move_diff[0] = -1;
 							else
-								move_diff[0] = 0.0f;
+								move_diff[0] = 0;
 							break;
 						case SDLK_D:
 							input_dirs &= ~4;
 							if (input_dirs & 8)
-								move_diff[1] = 1.0f * optn.target_aspect_ratio;
+								move_diff[1] = 1;
 							else
-								move_diff[1] = 0.0f;
+								move_diff[1] = 0;
 							break;
 						case SDLK_A:
 							input_dirs &= ~8;
 							if (input_dirs & 4)
-								move_diff[1] = -1.0f * optn.target_aspect_ratio;
+								move_diff[1] = -1;
 							else
-								move_diff[1] = 0.0f;
+								move_diff[1] = 0;
 							break;
 					}
 					break;
@@ -388,12 +378,12 @@ main(int argc, char *argv[])
 		}
 
 		/* Game */
-		float velocity = 0.008f;
-		player_data[0] += move_diff[0] * velocity;
-		player_data[1] += move_diff[1] * velocity;
-		glNamedBufferData(player_position_ubuf, sizeof player_data, player_data, GL_DYNAMIC_DRAW);
+		int velocity = 64;
+		player_data.xpos += move_diff[0] * velocity;
+		player_data.ypos += move_diff[1] * velocity;
+		glNamedBufferData(player_position_ubuf, sizeof player_data, &player_data, GL_DYNAMIC_DRAW);
 
-		collision_check(&player, &bullet, 1);
+		collision_check(&player_data, &bullet_data, 1);
 
 		/*
 		 * Render
@@ -405,16 +395,14 @@ main(int argc, char *argv[])
 		glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-		//glBindFramebuffer(GL_DRAW_FRAMEBUFFER, render_framebuffer);
-		draw_player_sprites(1);
-		//glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
-
-		/* Copy contents from GL_READ_FRAMEBUFFER to GL_DRAW_FRAMEBUFFER
-		 * scaled up by 2 times */
-		//glBindFramebuffer(GL_READ_FRAMEBUFFER, render_framebuffer);
-		//glBindFramebuffer(GL_DRAW_FRAMEBUFFER, output_framebuffer);
-		//glBlitFramebuffer(0, 0, 304, 540, 0, 0, 608, 1080,
-		//		GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+		/*
+		 * TODO: Copy contents from draw framebuffer to render framebuffer
+		 * scaled up by 2 times to create a pixelated effect.
+		 */
+		glBindBufferBase(GL_UNIFORM_BUFFER, 1, player_position_ubuf);
+		draw_sprites(player_sprite_varray, 1);
+		glBindBufferBase(GL_UNIFORM_BUFFER, 1, bullet_position_ubuf);
+		draw_sprites(bullet_sprite_varray, 1);
 		SDL_GL_SwapWindow(window);
 
 		/* Frame advance */

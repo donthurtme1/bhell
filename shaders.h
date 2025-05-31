@@ -18,7 +18,7 @@ layout(binding = 0) uniform transform_matrix_uniform {\n\
 	mat3 trans_matrix;\n\
 };\n\
 layout(binding = 1) uniform sprite_data_uniform {\n\
-	vec2 sprite_positions;\n\
+	uvec2 sprite_positions;\n\
 };\n\
 \n\
 /*\n\
@@ -32,7 +32,9 @@ layout(location = 0) out vec2 out_texcoords;\n\
 void\n\
 main()\n\
 {\n\
-	vec3 t_sprite_pos = trans_matrix * vec3(sprite_positions, 1.0f);\n\
+	vec2 t_sprite_pos;\n\
+	t_sprite_pos.x = float(sprite_positions.x) * (2.0f / 25600.0f) - 1.0f;\n\
+	t_sprite_pos.y = float(sprite_positions.y) * (2.0f / 34560.0f) - 1.0f;\n\
 	gl_Position = vec4(\n\
 			vertex_position.x + t_sprite_pos.x,\n\
 			vertex_position.y + t_sprite_pos.y,\n\
