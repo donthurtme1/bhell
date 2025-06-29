@@ -14,7 +14,11 @@ layout(binding = 0) uniform transform_matrix_uniform {
 	mat3 trans_matrix;
 };
 layout(binding = 1) uniform sprite_data_uniform {
-	uvec2 sprite_positions;
+	uvec4 sprite_positions[512];
+	/* .x -> .xpos
+	   .y -> .ypos
+	   .z -> .width
+	   .w -> .height */
 };
 
 /*
@@ -29,8 +33,8 @@ void
 main()
 {
 	vec2 t_sprite_pos;
-	t_sprite_pos.x = float(sprite_positions.x) * (2.0f / 25600.0f) - 1.0f;
-	t_sprite_pos.y = float(sprite_positions.y) * (2.0f / 34560.0f) - 1.0f;
+	t_sprite_pos.x = float(sprite_positions[gl_InstanceID].x >> 16) * (2.0f / 400.0f) - 1.0f;
+	t_sprite_pos.y = float(sprite_positions[gl_InstanceID].y >> 16) * (2.0f / 540.0f) - 1.0f;
 	gl_Position = vec4(
 			vertex_position.x + t_sprite_pos.x,
 			vertex_position.y + t_sprite_pos.y,

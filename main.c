@@ -17,17 +17,13 @@
 #define LENGTH(a) (int)(sizeof(a) / sizeof(a[0]))
 #define ALIGN(x) __attribute__((aligned(x)))
 
-struct PlayerSpriteData {
-	float xpos_offset, ypos_offset;
-	float xscale_factor, yscale_factor;
-	int texture_num; /* OpenGL always has at least 16 textures numbered 0 - 15 */
-} ALIGN(8);
-
-struct EnemySpriteData {
-	float xpos_offset, ypos_offset;
-	float xscale_factor, yscale_factor;
-	int texture_num; /* OpenGL always has at least 16 textures numbered 0 - 15 */
-} ALIGN(8);
+typedef union {
+	unsigned int coord;
+	struct {
+		unsigned short subpx;
+		unsigned short pixel;
+	};
+} coord_t;
 
 static struct OptionData {
 	int target_fps;
@@ -40,39 +36,38 @@ static struct OptionData {
 /*
  * Game stuff
  */
-struct Projectile {
-	int xpos, ypos; /* Origin at bottom left */
-	int width, height; /* Size of hitbox */
-	int projectile_id;
-} ALIGN(8);
-
 struct EntityData {
-	int xpos, ypos; /* Origin at bottom left */
-	int width, height; /* Size of hitbox */
+	coord_t xpos, ypos; /* Origin at bottom left */
+	coord_t width, height; /* Size of hitbox */
 } ALIGN(8);
 
 static struct EntityData player_data = {
-	.xpos = 202 << 6,
-	.ypos = 270 << 6,
-	.width = 2 << 6,
-	.height = 2 << 6,
+	.xpos.pixel = 202,
+	.ypos.pixel = 270,
+	.width.pixel = 2,
+	.height.pixel = 2,
 };
 
 #include "logic.c"
 
-extern struct Projectile *
-collision_check(struct EntityData *player, struct Projectile *enemy_bullets, int n);
+/*
+ * Returns a pointer to a null terminated array of projectiles
+ * the player collided with
+ */
+extern struct EntityData *
+collision_check(struct EntityData *player, struct EntityData *enemy_bullets, int n);
 
 /*
  * Render the player and the player's projectiles
  */
 void
-draw_sprites(GLuint vertex_array_obj, int nsprites)
+draw_sprites(GLuint vertex_array_obj, int nsprites, GLuint position_array_ubuf)
 {
 	const uint8_t index_data[] = {
 		0, 1, 2, 2, 3, 0
 	};
 
+	glBindBufferBase(GL_UNIFORM_BUFFER, 1, position_array_ubuf);
 	glBindVertexArray(vertex_array_obj);
 	glDrawElementsInstanced(GL_TRIANGLES, 6, GL_UNSIGNED_BYTE, index_data, nsprites);
 }
@@ -231,29 +226,24 @@ main(int argc, char *argv[])
 	/*
 	 * Create uniform buffers
 	 */
-	GLuint transform_matrix_ubuf;
-	float transform_matrix[9] = {
-		2.0f / 21599.0f, 0, -1.0f,
-		0, 2.0f / 34559.0f, -1.0f,
-		0, 0, 0,
-	};
-	glGenBuffers(1, &transform_matrix_ubuf);
-	glBindBufferBase(GL_UNIFORM_BUFFER, 0, transform_matrix_ubuf);
-	glNamedBufferData(transform_matrix_ubuf, sizeof transform_matrix, transform_matrix, GL_STATIC_DRAW);
-
 	GLuint player_position_ubuf;
 	glGenBuffers(1, &player_position_ubuf);
 	glBindBufferBase(GL_UNIFORM_BUFFER, 1, player_position_ubuf);
 	glNamedBufferData(player_position_ubuf, sizeof player_data, &player_data, GL_DYNAMIC_DRAW);
 
 	GLuint bullet_position_ubuf;
-	struct Projectile bullet_data = {
-		.xpos = 202 << 6, .ypos = 405 << 6,
-		.width = 1 << 6, .height = 1 << 6,
-	};
+	struct EntityData bullet_data[4];
+	bullet_data[0] = (struct EntityData){ .xpos.pixel = 202, .ypos.pixel = 405,
+		.width.pixel = 1, .height.pixel = 1 };
+	bullet_data[1] = (struct EntityData){ .xpos.pixel = 218, .ypos.pixel = 405,
+		.width.pixel = 1, .height.pixel = 1 };
+	bullet_data[2] = (struct EntityData){ .xpos.pixel = 202, .ypos.pixel = 421,
+		.width.pixel = 1, .height.pixel = 1 };
+	bullet_data[3] = (struct EntityData){ .xpos.pixel = 218, .ypos.pixel = 421,
+		.width.pixel = 1, .height.pixel = 1 };
+
 	glGenBuffers(1, &bullet_position_ubuf);
-	glBindBufferBase(GL_UNIFORM_BUFFER, 1, bullet_position_ubuf);
-	glNamedBufferData(bullet_position_ubuf, sizeof bullet_data, &bullet_data, GL_DYNAMIC_DRAW);
+	glNamedBufferData(bullet_position_ubuf, 4 * sizeof(bullet_data[0]), bullet_data, GL_DYNAMIC_DRAW);
 
 	/*
 	 * Load textures
@@ -263,7 +253,7 @@ main(int argc, char *argv[])
 	texture_data[0] = stbi_load("/home/basil/images/gameboy-flower.png",
 			&texwidth[0], &texheight[0], &texchannels[0], 0);
 	texture_data[1] = stbi_load("/home/basil/images/sanrio.png",
-			&texwidth[1], &texheight[1], &texchannels[1], 1);
+			&texwidth[1], &texheight[1], &texchannels[1], 0);
 
 	GLuint textures[2];
 	glGenTextures(2, textures);
@@ -277,7 +267,7 @@ main(int argc, char *argv[])
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, texwidth[i], texheight[i],
-				0, GL_RGBA, GL_UNSIGNED_BYTE, texture_data[i]);
+				0, GL_RGB, GL_UNSIGNED_BYTE, texture_data[i]);
 		glGenerateMipmap(GL_TEXTURE_2D);
 	}
 
@@ -378,12 +368,17 @@ main(int argc, char *argv[])
 		}
 
 		/* Game */
-		int velocity = 64;
-		player_data.xpos += move_diff[0] * velocity;
-		player_data.ypos += move_diff[1] * velocity;
+		int velocity = 1;
+		player_data.xpos.pixel += move_diff[0] * velocity;
+		player_data.ypos.pixel += move_diff[1] * velocity;
 		glNamedBufferData(player_position_ubuf, sizeof player_data, &player_data, GL_DYNAMIC_DRAW);
 
-		collision_check(&player_data, &bullet_data, 1);
+		for (int i = 0; i < 4; i++) {
+			bullet_data[i].ypos.pixel++;
+		}
+		glNamedBufferData(bullet_position_ubuf, 4 * sizeof(bullet_data[0]), bullet_data, GL_DYNAMIC_DRAW);
+
+		collision_check(&player_data, bullet_data, 1);
 
 		/*
 		 * Render
@@ -399,10 +394,8 @@ main(int argc, char *argv[])
 		 * TODO: Copy contents from draw framebuffer to render framebuffer
 		 * scaled up by 2 times to create a pixelated effect.
 		 */
-		glBindBufferBase(GL_UNIFORM_BUFFER, 1, player_position_ubuf);
-		draw_sprites(player_sprite_varray, 1);
-		glBindBufferBase(GL_UNIFORM_BUFFER, 1, bullet_position_ubuf);
-		draw_sprites(bullet_sprite_varray, 1);
+		draw_sprites(player_sprite_varray, 1, player_position_ubuf);
+		draw_sprites(bullet_sprite_varray, 4, bullet_position_ubuf);
 		SDL_GL_SwapWindow(window);
 
 		/* Frame advance */
