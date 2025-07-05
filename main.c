@@ -17,14 +17,6 @@
 #define LENGTH(a) (int)(sizeof(a) / sizeof(a[0]))
 #define ALIGN(x) __attribute__((aligned(x)))
 
-typedef union {
-	unsigned int coord;
-	struct {
-		unsigned short subpx;
-		unsigned short pixel;
-	};
-} coord_t;
-
 static struct OptionData {
 	int target_fps;
 	float target_aspect_ratio;
@@ -34,146 +26,54 @@ static struct OptionData {
 };
 
 /*
+ * Global input state
+ */
+struct InputState {
+	enum {
+		DIR_LEFT = 1,
+		DIR_RIGHT = 2,
+		DIR_DOWN = 4,
+		DIR_UP = 8,
+	} movement;
+	int shoot;
+} input_state;
+
+/*
  * Game stuff
  */
-struct EntityData {
-	coord_t xpos, ypos; /* Origin at bottom left */
-	coord_t width, height; /* Size of hitbox */
-} ALIGN(8);
+typedef struct {
+	float x, y; /* Origin at bottom left */
+} ALIGN(8) Vec2;
 
-static struct EntityData player_data = {
-	.xpos.pixel = 202,
-	.ypos.pixel = 270,
-	.width.pixel = 2,
-	.height.pixel = 2,
+struct Entity {
+	Vec2 pos;
+	Vec2 vel;
+	int health;
+	int fire_cooldown;
 };
 
-#include "logic.c"
+/*
+ * Player variables
+ */
+struct Entity player_data = {
+	.pos = { 200, 270 },
+	.vel = { 0, 0 },
+	.health = 100,
+	.fire_cooldown = 0,
+};
+Vec2 player_bullets[256];
+int n_player_bullets = 0;
 
 /*
- * Returns a pointer to a null terminated array of projectiles
- * the player collided with
+ * Enemy variables
  */
-extern struct EntityData *
-collision_check(struct EntityData *player, struct EntityData *enemy_bullets, int n);
+struct Entity enemy_array[64];
+Vec2 enemy_bullets[1024];
+int n_enemy_bullets = 0;
 
-/*
- * Render the player and the player's projectiles
- */
-void
-draw_sprites(GLuint vertex_array_obj, int nsprites, GLuint position_array_ubuf)
-{
-	const uint8_t index_data[] = {
-		0, 1, 2, 2, 3, 0
-	};
-
-	glBindBufferBase(GL_UNIFORM_BUFFER, 1, position_array_ubuf);
-	glBindVertexArray(vertex_array_obj);
-	glDrawElementsInstanced(GL_TRIANGLES, 6, GL_UNSIGNED_BYTE, index_data, nsprites);
-}
-
-/*
- * Load and compile shaders,
- * Returns a GLuint representing a shader program.
- */
-GLuint
-createprogram()
-{
-	int compile_status = 0;
-	int error_occured = 0;
-
-	/*
-	 * Create and compile shaders
-	 */
-	GLuint vertex_shader = glCreateShader(GL_VERTEX_SHADER);
-	glShaderSource(vertex_shader, 1, &sth_vertex_src, NULL);
-	glCompileShader(vertex_shader);
-	glGetShaderiv(vertex_shader, GL_COMPILE_STATUS, &compile_status);
-	if (compile_status == GL_FALSE)
-	{
-		int len = 0;
-		char infolog[128];
-		glGetShaderInfoLog(vertex_shader, sizeof infolog, &len, infolog);
-		fwrite("Vertex shader: ", sizeof(char), 15, stderr);
-		fwrite(infolog, sizeof(char), len, stderr);
-		putc('\n', stderr);
-		error_occured = 1;
-	}
-
-	GLuint fragment_shader = glCreateShader(GL_FRAGMENT_SHADER);
-	glShaderSource(fragment_shader, 1, &sth_fragment_src, NULL);
-	glCompileShader(fragment_shader);
-	glGetShaderiv(fragment_shader, GL_COMPILE_STATUS, &compile_status);
-	if (compile_status == GL_FALSE)
-	{
-		int len = 0;
-		char infolog[128];
-		glGetShaderInfoLog(fragment_shader, sizeof infolog, &len, infolog);
-		fwrite("Fragment shader: ", sizeof(char), 17, stderr);
-		fwrite(infolog, sizeof(char), len, stderr);
-		putc('\n', stderr);
-		error_occured = 1;
-	}
-
-	int link_status;
-
-	/*
-	 * Create and link shader program
-	 */
-	GLuint shader_program = glCreateProgram();
-	glAttachShader(shader_program, vertex_shader);
-	glAttachShader(shader_program, fragment_shader);
-	glLinkProgram(shader_program);
-	glGetProgramiv(shader_program, GL_LINK_STATUS, &link_status);
-	if (link_status == GL_FALSE)
-	{
-		int len = 0;
-		char infolog[128];
-		glGetShaderInfoLog(fragment_shader, sizeof infolog, &len, infolog);
-		fwrite("Shader Program: ", sizeof(char), 16, stderr);
-		fwrite(infolog, sizeof(char), len, stderr);
-		putc('\n', stderr);
-		error_occured = 1;
-	}
-
-	/* Cleanup */
-	glDeleteShader(vertex_shader);
-	glDeleteShader(fragment_shader);
-
-	if (error_occured > 0)
-		exit(EXIT_FAILURE);
-
-	return shader_program;
-}
-
-/*
- * Calls glCreateVertexArrays for @vertex_arrays
- */
-int
-create_sprite_arrays(GLuint *vertex_arrays, GLuint *vertex_buffers)
-{
-	float vertex_data[] = {
-		/* position									tex_coords */
-		-0.02f, -0.02f * optn.target_aspect_ratio,	0.0f, 1.0f,
-		 0.02f, -0.02f * optn.target_aspect_ratio,	1.0f, 1.0f,
-		 0.02f,  0.02f * optn.target_aspect_ratio,	1.0f, 0.0f,
-		-0.02f,  0.02f * optn.target_aspect_ratio,	0.0f, 0.0f,
-	};
-
-	glCreateVertexArrays(1, vertex_arrays);
-	glGenBuffers(1, vertex_buffers);
-
-	glBindVertexArray(*vertex_arrays);
-	glBindBuffer(GL_ARRAY_BUFFER, *vertex_buffers);
-	glBufferData(GL_ARRAY_BUFFER, sizeof vertex_data, vertex_data, GL_STATIC_DRAW);
-
-	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void *)0);
-	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void *)8);
-	glEnableVertexAttribArray(0);
-	glEnableVertexAttribArray(1);
-
-	return 0;
-}
+#include "input.c"
+#include "game.c"
+#include "render.c"
 
 int
 main(int argc, char *argv[])
@@ -220,30 +120,32 @@ main(int argc, char *argv[])
 
 	GLuint player_sprite_varray, player_sprite_vbuf,
 		   bullet_sprite_varray, bullet_sprite_vbuf;
-	create_sprite_arrays(&player_sprite_varray, &player_sprite_vbuf);
-	create_sprite_arrays(&bullet_sprite_varray, &bullet_sprite_vbuf);
+	create_sprite_arrays(&player_sprite_varray, &player_sprite_vbuf, 8);
+	create_sprite_arrays(&bullet_sprite_varray, &bullet_sprite_vbuf, 4);
 
 	/*
 	 * Create uniform buffers
 	 */
 	GLuint player_position_ubuf;
 	glGenBuffers(1, &player_position_ubuf);
-	glBindBufferBase(GL_UNIFORM_BUFFER, 1, player_position_ubuf);
 	glNamedBufferData(player_position_ubuf, sizeof player_data, &player_data, GL_DYNAMIC_DRAW);
 
-	GLuint bullet_position_ubuf;
-	struct EntityData bullet_data[4];
-	bullet_data[0] = (struct EntityData){ .xpos.pixel = 202, .ypos.pixel = 405,
-		.width.pixel = 1, .height.pixel = 1 };
-	bullet_data[1] = (struct EntityData){ .xpos.pixel = 218, .ypos.pixel = 405,
-		.width.pixel = 1, .height.pixel = 1 };
-	bullet_data[2] = (struct EntityData){ .xpos.pixel = 202, .ypos.pixel = 421,
-		.width.pixel = 1, .height.pixel = 1 };
-	bullet_data[3] = (struct EntityData){ .xpos.pixel = 218, .ypos.pixel = 421,
-		.width.pixel = 1, .height.pixel = 1 };
+	GLuint enemy_bullets_ubuf;
+	glGenBuffers(1, &enemy_bullets_ubuf);
+	glNamedBufferData(enemy_bullets_ubuf, 4 * sizeof(enemy_bullets[0]), enemy_bullets, GL_DYNAMIC_DRAW);
 
-	glGenBuffers(1, &bullet_position_ubuf);
-	glNamedBufferData(bullet_position_ubuf, 4 * sizeof(bullet_data[0]), bullet_data, GL_DYNAMIC_DRAW);
+	GLuint player_bullets_ubuf;
+	glGenBuffers(1, &player_bullets_ubuf);
+	glNamedBufferData(player_bullets_ubuf, n_player_bullets, player_bullets, GL_DYNAMIC_DRAW);
+
+	GLuint player_colour_ubuf;
+	float colour_rosepine[3];
+	colour_rosepine[0] = 0.24f;
+	colour_rosepine[1] = 0.56f;
+	colour_rosepine[2] = 0.69f;
+	glGenBuffers(1, &player_colour_ubuf);
+	glBindBufferBase(GL_UNIFORM_BUFFER, 2, player_colour_ubuf);
+	glNamedBufferData(player_colour_ubuf, sizeof(colour_rosepine), colour_rosepine, GL_STATIC_DRAW);
 
 	/*
 	 * Load textures
@@ -252,12 +154,12 @@ main(int argc, char *argv[])
 	unsigned char *texture_data[2];
 	texture_data[0] = stbi_load("/home/basil/images/gameboy-flower.png",
 			&texwidth[0], &texheight[0], &texchannels[0], 0);
-	texture_data[1] = stbi_load("/home/basil/images/sanrio.png",
+	texture_data[1] = stbi_load("",
 			&texwidth[1], &texheight[1], &texchannels[1], 0);
 
 	GLuint textures[2];
 	glGenTextures(2, textures);
-	for (int i = 0; i < 2; i++)
+	for (int i = 0; i < 1; i++)
 	{
 		glActiveTexture(GL_TEXTURE0 + i);
 		glBindTexture(GL_TEXTURE_2D, textures[i]);
@@ -266,8 +168,8 @@ main(int argc, char *argv[])
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, texwidth[i], texheight[i],
-				0, GL_RGB, GL_UNSIGNED_BYTE, texture_data[i]);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, texwidth[i], texheight[i],
+				0, GL_RGBA, GL_UNSIGNED_BYTE, texture_data[i]);
 		glGenerateMipmap(GL_TEXTURE_2D);
 	}
 
@@ -280,105 +182,69 @@ main(int argc, char *argv[])
 	struct timespec monotime;
 	clock_gettime(CLOCK_MONOTONIC, &monotime);
 
-	int run = 1;
 	int frame_time = 1000000000 / optn.target_fps;
-	while (run > 0) {
-		/* Input */
+	while (1) {
+		/*
+		 * Input
+		 */
 		static SDL_Event event;
 		while (SDL_PollEvent(&event)) {
-			switch (event.type)
-			{
-				case SDL_EVENT_QUIT:
-					run = 0;
-					break;
-				case SDL_EVENT_WINDOW_RESIZED:
-					SDL_GetWindowSize(window, &winsize.width, &winsize.height);
+			int event_result = handle_sdl_event(event, window);
+			if (event_result < 0)
+				goto end_main_loop;
+		}
 
-					float current_aspect_ratio = (float)winsize.width / winsize.height;
-					if (current_aspect_ratio == optn.target_aspect_ratio) {
-						glViewport(0, 0, winsize.width, winsize.height);
-						glScissor(0, 0, winsize.width, winsize.height);
-					}
-					else if (current_aspect_ratio > optn.target_aspect_ratio) {
-						int width = winsize.height * optn.target_aspect_ratio;
-						int offset = (winsize.width - width) / 2;
-						glViewport(offset, 0, width, winsize.height);
-						glScissor(offset, 0, width, winsize.height);
-					}
-					else {
-						int height = winsize.width / optn.target_aspect_ratio;
-						int offset = (winsize.height - height) / 2;
-						glViewport(0, offset, winsize.width, height);
-						glScissor(0, offset, winsize.width, height);
-					}
-					break;
-				case SDL_EVENT_KEY_DOWN:
-					switch (event.key.key) {
-						case SDLK_S:
-							input_dirs |= 1;
-							move_diff[0] = -1;
-							break;
-						case SDLK_F:
-							input_dirs |= 2;
-							move_diff[0] = 1;
-							break;
-						case SDLK_D:
-							input_dirs |= 4;
-							move_diff[1] = -1;
-							break;
-						case SDLK_A:
-							input_dirs |= 8;
-							move_diff[1] = 1;
-							break;
-					}
-					break;
-				case SDL_EVENT_KEY_UP:
-					switch (event.key.key) {
-						case SDLK_S:
-							input_dirs &= ~1;
-							if (input_dirs & 2)
-								move_diff[0] = 1;
-							else
-								move_diff[0] = 0;
-							break;
-						case SDLK_F:
-							input_dirs &= ~2;
-							if (input_dirs & 1)
-								move_diff[0] = -1;
-							else
-								move_diff[0] = 0;
-							break;
-						case SDLK_D:
-							input_dirs &= ~4;
-							if (input_dirs & 8)
-								move_diff[1] = 1;
-							else
-								move_diff[1] = 0;
-							break;
-						case SDLK_A:
-							input_dirs &= ~8;
-							if (input_dirs & 4)
-								move_diff[1] = -1;
-							else
-								move_diff[1] = 0;
-							break;
-					}
-					break;
+		static int shoot_cooldown = 0;
+		if (input_state.shoot > 0 && shoot_cooldown == 0) {
+			player_shoot(player_bullets, &n_player_bullets);
+			shoot_cooldown = 6;
+		}
+		else if (shoot_cooldown > 0) {
+			shoot_cooldown--;
+		}
+
+		/*
+		 * Physics calculations
+		 */
+		player_data.pos.x += player_data.vel.x;
+		player_data.pos.y += player_data.vel.y;
+
+		/* Update player bullets */
+		for (int i = 0;
+				i < n_player_bullets &&
+				i < 256; /* `n_bullets` should never exceed 256 */
+				i++)
+		{
+			if (player_bullets[i].y + 5.2f > 540.0f) {
+				n_player_bullets -= 1;
+				player_bullets[i] = player_bullets[n_player_bullets];
 			}
+
+			player_bullets[i].y += 5.2f;
 		}
 
-		/* Game */
-		int velocity = 1;
-		player_data.xpos.pixel += move_diff[0] * velocity;
-		player_data.ypos.pixel += move_diff[1] * velocity;
-		glNamedBufferData(player_position_ubuf, sizeof player_data, &player_data, GL_DYNAMIC_DRAW);
-
-		for (int i = 0; i < 4; i++) {
-			bullet_data[i].ypos.pixel++;
+		/* Update enemy bullets */
+		static int enemy_bullet_cooldown = 0;
+		if (enemy_bullet_cooldown > 0)
+			enemy_bullet_cooldown--;
+		else {
+			spawn_enemy_bullet(enemy_bullets, &n_enemy_bullets);
+			enemy_bullet_cooldown = 60;
 		}
-		glNamedBufferData(bullet_position_ubuf, 4 * sizeof(bullet_data[0]), bullet_data, GL_DYNAMIC_DRAW);
+		for (int i = 0;
+				i < n_enemy_bullets &&
+				i < 1024; /* `n_enemy_bullets` should never exceed 1024 */
+				i++)
+		{
+			enemy_bullets[i].y += -1.1f;
+		}
 
-		collision_check(&player_data, bullet_data, 1);
+		/*
+		 * Update uniform buffers
+		 */
+		glNamedBufferData(player_position_ubuf, 8, &player_data.pos, GL_DYNAMIC_DRAW);
+		glNamedBufferData(enemy_bullets_ubuf, n_enemy_bullets * 8, enemy_bullets, GL_DYNAMIC_DRAW);
+		glNamedBufferData(player_bullets_ubuf, n_player_bullets * 8, player_bullets, GL_DYNAMIC_DRAW);
 
 		/*
 		 * Render
@@ -387,15 +253,18 @@ main(int argc, char *argv[])
 		glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 		glEnable(GL_SCISSOR_TEST);
-		glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
+		glClearColor(0.1f, 0.09f, 0.14f, 1.0f);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 		/*
 		 * TODO: Copy contents from draw framebuffer to render framebuffer
 		 * scaled up by 2 times to create a pixelated effect.
 		 */
-		draw_sprites(player_sprite_varray, 1, player_position_ubuf);
-		draw_sprites(bullet_sprite_varray, 4, bullet_position_ubuf);
+		/* Render player and enemies */
+		draw_sprites(player_sprite_varray, 1, player_position_ubuf, player_colour_ubuf);
+		/* Render bullets */
+		draw_sprites(bullet_sprite_varray, n_enemy_bullets, enemy_bullets_ubuf, player_colour_ubuf);
+		draw_sprites(bullet_sprite_varray, n_player_bullets, player_bullets_ubuf, player_colour_ubuf);
 		SDL_GL_SwapWindow(window);
 
 		/* Frame advance */
@@ -406,6 +275,7 @@ main(int argc, char *argv[])
 		}
 		while (clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &monotime, NULL) > 0);
 	}
+end_main_loop:
 
 	SDL_Quit();
 	return 0;
