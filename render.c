@@ -1,5 +1,5 @@
 /*
- * Render the player and the player's projectiles
+ * Render similar sprites
  */
 void
 draw_sprites(GLuint vertex_array_obj, int nsprites,

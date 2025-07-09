@@ -30,20 +30,20 @@ handle_sdl_event(SDL_Event event, SDL_Window *window)
 		case SDL_EVENT_KEY_DOWN:
 			switch (event.key.key) {
 				case SDLK_S:
-					input_state.movement |= 1;
-					player_data.vel.x = -1;
+					input_state.mov_keys |= 1;
+					player_data.vel.x = -1.5f;
 					break;
 				case SDLK_F:
-					input_state.movement |= 2;
-					player_data.vel.x = 1;
+					input_state.mov_keys |= 2;
+					player_data.vel.x = 1.5f;
 					break;
 				case SDLK_D:
-					input_state.movement |= 4;
-					player_data.vel.y = -1;
+					input_state.mov_keys |= 4;
+					player_data.vel.y = -1.5f;
 					break;
 				case SDLK_A:
-					input_state.movement |= 8;
-					player_data.vel.y = 1;
+					input_state.mov_keys |= 8;
+					player_data.vel.y = 1.5f;
 					break;
 
 				case SDLK_K:
@@ -54,30 +54,30 @@ handle_sdl_event(SDL_Event event, SDL_Window *window)
 		case SDL_EVENT_KEY_UP:
 			switch (event.key.key) {
 				case SDLK_S:
-					input_state.movement &= ~1;
-					if (input_state.movement & 2)
-						player_data.vel.x = 1;
+					input_state.mov_keys &= ~1;
+					if (input_state.mov_keys & 2)
+						player_data.vel.x = 1.5f;
 					else
 						player_data.vel.x = 0;
 					break;
 				case SDLK_F:
-					input_state.movement &= ~2;
-					if (input_state.movement & 1)
-						player_data.vel.x = -1;
+					input_state.mov_keys &= ~2;
+					if (input_state.mov_keys & 1)
+						player_data.vel.x = -1.5f;
 					else
 						player_data.vel.x = 0;
 					break;
 				case SDLK_D:
-					input_state.movement &= ~4;
-					if (input_state.movement & 8)
-						player_data.vel.y = 1;
+					input_state.mov_keys &= ~4;
+					if (input_state.mov_keys & 8)
+						player_data.vel.y = 1.5f;
 					else
 						player_data.vel.y = 0;
 					break;
 				case SDLK_A:
-					input_state.movement &= ~8;
-					if (input_state.movement & 4)
-						player_data.vel.y = -1;
+					input_state.mov_keys &= ~8;
+					if (input_state.mov_keys & 4)
+						player_data.vel.y = -1.5f;
 					else
 						player_data.vel.y = 0;
 					break;
@@ -92,7 +92,7 @@ handle_sdl_event(SDL_Event event, SDL_Window *window)
 	return 0;
 }
 
-	void
+void
 parse_input()
 {
 }
