@@ -1,13 +1,11 @@
 #include <stdlib.h>
 
 void
-player_shoot(Vec2 *player_bullets, int *len)
+player_shoot(struct list_head head)
 {
-	if (*len >= 256)
-		return;
-
-	player_bullets[*len] = player_data.pos;
-	(*len) += 1;
+	struct Bullet *new = malloc(sizeof(struct Bullet));
+	new->position = player_data.pos;
+	list_add(&new->link, head->prev);
 }
 
 void

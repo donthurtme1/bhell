@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <time.h>
 #include "shaders.h"
+#include "list.h"
 
 #define GL_GLEXT_PROTOTYPES
 #include <GL/glut.h>
@@ -48,23 +49,33 @@ struct InputState {
  */
 struct AttackData {
 	int bullet_type;
-	int num_bullets;
+	int bullet_count;
+
 	Vec2 *initial_velocities;
 	Vec2 *initial_accels;
 	Vec2 *initial_jerks;
 };
 
 struct Entity {
+	struct list_head link;
+
 	Vec2 pos;
 	Vec2 vel;
 	Vec2 accel;
+
 	int health;
 	int fire_cooldown;
 	struct AttackData *attack_data;
 };
 
+struct Bullet {
+	struct list_head link;
+	Vec2 position;
+	Vec2 velocity;
+};
+
 /*
- * Player variables
+ * Gameplay variables
  */
 struct Entity player_data = {
 	.pos = { 200, 270 },
@@ -72,19 +83,10 @@ struct Entity player_data = {
 	.health = 100,
 	.fire_cooldown = 0,
 };
-Vec2 player_bullets[256];
-int n_player_bullets = 0;
 
-/*
- * Enemy variables
- */
-struct Entity *enemy_array[256];
-int n_enemies = 0;
-Vec2 enemy_entity_positions[256];
-
-Vec2 bullet_positions[1024];
-Vec2 bullet_velocities[1024];
-int n_enemy_bullets = 0;
+struct list_head playerbullets = LIST_HEAD_INIT(playerbullets);
+struct list_head enemybullets = LIST_HEAD_INIT(enemybullets);
+struct list_head enemies = LIST_HEAD_INIT(enemies);
 
 #include "input.c"
 #include "game.c"
@@ -219,7 +221,7 @@ main(int argc, char *argv[])
 
 		static int shoot_cooldown = 0;
 		if (input_state.shoot > 0 && shoot_cooldown == 0) {
-			player_shoot(player_bullets, &n_player_bullets);
+			player_shoot(playerbullets);
 			shoot_cooldown = 6;
 		}
 		else if (shoot_cooldown > 0) {
@@ -229,12 +231,12 @@ main(int argc, char *argv[])
 		/*
 		 * Level stuff
 		 */
-		static int level_frame_count = 0;
-		if (level_frame_count % 120 == 0) {
-			spawn_enemy(enemy_array, NULL, &n_enemies);
-			enemy_entity_positions[n_enemies - 1] = enemy_array[n_enemies - 1]->pos;
-		}
-		level_frame_count++;
+		//static int level_frame_count = 0;
+		//if (level_frame_count % 120 == 0) {
+		//	spawn_enemy(enemy_array, NULL, &n_enemies);
+		//	enemy_entity_positions[n_enemies - 1] = enemy_array[n_enemies - 1]->pos;
+		//}
+		//level_frame_count++;
 
 		/*
 		 * Physics calculations
@@ -243,93 +245,63 @@ main(int argc, char *argv[])
 		player_data.pos.y += player_data.vel.y;
 
 		/* Update player bullets */
-		for (int i = 0;
-				i < n_player_bullets; /* `n_bullets` should never exceed 256 */
-				i++)
+		struct Bullet *bullet;
+		list_for_each_entry(bullet, playerbullets, link)
 		{
-			if (player_bullets[i].y + 5.2f > 540.0f) {
-				n_player_bullets -= 1;
-				player_bullets[i] = player_bullets[n_player_bullets];
+			if (bullet->position.y + 6.8f > 540.0f) {
+				list_del(bullet->link);
+				free(bullet);
+				continue;
 			}
 
-			player_bullets[i].y += 6.8f;
-
-			for (int j = 0;
-					j < n_enemies;
-					j++)
-			{
-				if (collision_test(player_bullets[i], (Vec2){ 4, 4 },
-							enemy_array[j]->pos, (Vec2){ 12, 12 }) == 0) {
-					continue;
-				}
-
-				/* Deal damage to enemy */
-				enemy_array[j]->health -= 1;
-				if (enemy_array[j]->health <= 0) {
-					remove_enemy(enemy_array, j, &n_enemies);
-					j--;
-				}
-
-				/* Remove current bullet from player bullet list */
-				n_player_bullets--;
-				player_bullets[i] = player_bullets[n_player_bullets];
-				i--;
-				break;
-			}
+			bullet->position.y += 6.8f;
 		}
 
 		/* Update enemy entities */
-		for (int i = 0;
-				enemy_array[i] != NULL && i < 256;
-				i++)
-		{
-			enemy_array[i]->vel.y += enemy_array[i]->accel.y;
+		//for (int i = 0;
+		//		enemy_array[i] != NULL && i < 256;
+		//		i++)
+		//
+		//	enemy_array[i]->vel.y += enemy_array[i]->accel.y;
 
-			enemy_array[i]->pos.x += enemy_array[i]->vel.x;
-			enemy_array[i]->pos.y += enemy_array[i]->vel.y;
-			enemy_entity_positions[i] = enemy_array[i]->pos;
+		//	enemy_array[i]->pos.x += enemy_array[i]->vel.x;
+		//	enemy_array[i]->pos.y += enemy_array[i]->vel.y;
+		//	enemy_entity_positions[i] = enemy_array[i]->pos;
 
-			if (enemy_array[i]->fire_cooldown > 0)
-				enemy_array[i]->fire_cooldown -= 1;
-			else {
-				spawn_enemy_bullets(bullet_positions, bullet_velocities, &n_enemy_bullets,
-						enemy_array[i]->pos, enemy_array[i]->attack_data);
-				enemy_array[i]->fire_cooldown = 42;
-			}
+		//	if (enemy_array[i]->fire_cooldown > 0)
+		//		enemy_array[i]->fire_cooldown -= 1;
+		//	else {
+		//		spawn_enemy_bullets(bullet_positions, bullet_velocities, &n_enemy_bullets,
+		//				enemy_array[i]->pos, enemy_array[i]->attack_data);
+		//		enemy_array[i]->fire_cooldown = 42;
+		//	}
 
-			if (enemy_array[i]->pos.x > 400 || enemy_array[i]->pos.x < 0 ||
-					enemy_array[i]->pos.y > 540 || enemy_array[i]->pos.y < 0)
-			{
-				remove_enemy(enemy_array, i, &n_enemies);
-			}
-		}
+		//	if (enemy_array[i]->pos.x > 400 || enemy_array[i]->pos.x < 0 ||
+		//			enemy_array[i]->pos.y > 540 || enemy_array[i]->pos.y < 0)
+		//	{
+		//		remove_enemy(enemy_array, i, &n_enemies);
+		//	}
+		//}
 
 		/* Update enemy bullets */
-		for (int i = 0;
-				i < n_enemy_bullets && i < 1024; /* `n_enemy_bullets` should never exceed 1024 */
-				i++)
-		{
-			bullet_positions[i].x += bullet_velocities[i].x;
-			bullet_positions[i].y += bullet_velocities[i].y;
+		//list_for_each_entry(bullet, enemybullets, link)
+		//{
+		//	bullet->position.x += bullet->velocity.x;
+		//	bullet->position.y += bullet->velocity.y;
 
-			if (bullet_positions[i].x > 400.0f || bullet_positions[i].x < 0.0f ||
-					bullet_positions[i].y > 540.0f || bullet_positions[i].y < 0.0f)
-			{
-				n_enemy_bullets--;
-				bullet_positions[i] = bullet_positions[n_enemy_bullets];
-				bullet_velocities[i] = bullet_velocities[n_enemy_bullets];
-				i--;
-			}
-		}
+		//	if (bullet_positions[i].x > 400.0f || bullet_positions[i].x < 0.0f ||
+		//			bullet_positions[i].y > 540.0f || bullet_positions[i].y < 0.0f)
+		//	{
+		//		n_enemy_bullets--;
+		//		bullet_positions[i] = bullet_positions[n_enemy_bullets];
+		//		bullet_velocities[i] = bullet_velocities[n_enemy_bullets];
+		//		i--;
+		//	}
+		//}
 
 		/*
 		 * Render
 		 */
-		glNamedBufferData(player_position_ubuf, 8, &player_data.pos, GL_DYNAMIC_DRAW);
-		glNamedBufferData(player_bullets_ubuf, n_player_bullets * 8, player_bullets, GL_DYNAMIC_DRAW);
-		glNamedBufferData(enemy_positions_ubuf, n_enemies*8, enemy_entity_positions, GL_DYNAMIC_DRAW);
-		glNamedBufferData(enemy_bullets_ubuf, n_enemy_bullets * 8, bullet_positions, GL_DYNAMIC_DRAW);
-
 		glDisable(GL_SCISSOR_TEST);
 		glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -341,12 +313,6 @@ main(int argc, char *argv[])
 		 * TODO: Copy contents from draw framebuffer to render framebuffer
 		 * scaled up by 2 times to create a pixelated effect.
 		 */
-		/* Render entities */
-		draw_sprites(player_sprite_varray, 1, player_position_ubuf, player_colour_ubuf);
-		draw_sprites(enemy_sprite_varray, n_enemies, enemy_positions_ubuf, enemy_colour_ubuf);
-		/* Render bullets */
-		draw_sprites(bullet_sprite_varray, n_player_bullets, player_bullets_ubuf, player_colour_ubuf);
-		draw_sprites(bullet_sprite_varray, n_enemy_bullets, enemy_bullets_ubuf, enemy_colour_ubuf);
 		SDL_GL_SwapWindow(window);
 
 		/* Frame advance */
