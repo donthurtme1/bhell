@@ -124,8 +124,8 @@ main(int argc, char *argv[])
 	glEnable(GL_SCISSOR_TEST);
 	glDisable(GL_STENCIL_TEST);
 
-	struct { int width, height; } winsize;
-	SDL_GetWindowSize(window, &winsize.width, &winsize.height);
+	struct { int width, height; } win;
+	SDL_GetWindowSize(window, &win.width, &win.height);
 	glViewport(0, 0, 1080, 1920);
 	glScissor(0, 0, 1080, 1920);
 
@@ -166,33 +166,6 @@ main(int argc, char *argv[])
 	glNamedBufferData(enemy_colour_ubuf, sizeof(colour_rose), colour_rose, GL_STATIC_DRAW);
 
 	/*
-	 * Load textures
-	 */
-	//int texwidth[2], texheight[2], texchannels[2];
-	//unsigned char *texture_data[2];
-	//texture_data[0] = stbi_load("/home/basil/images/gameboy-flower.png",
-	//		&texwidth[0], &texheight[0], &texchannels[0], 0);
-	//texture_data[1] = stbi_load("",
-	//		&texwidth[1], &texheight[1], &texchannels[1], 0);
-
-	//GLuint textures[2];
-	//glGenTextures(2, textures);
-	//for (int i = 0; i < 1; i++)
-	//{
-	//	glActiveTexture(GL_TEXTURE0 + i);
-	//	glBindTexture(GL_TEXTURE_2D, textures[i]);
-
-	//	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-	//	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-	//	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-	//	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-	//	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, texwidth[i], texheight[i],
-	//			0, GL_RGBA, GL_UNSIGNED_BYTE, texture_data[i]);
-	//	glGenerateMipmap(GL_TEXTURE_2D);
-	//}
-
-
-	/*
 	 * Initial setup
 	 */
 	//spawn_enemy(enemy_array, NULL, &n_enemies);
@@ -219,13 +192,12 @@ main(int argc, char *argv[])
 				goto end_main_loop;
 		}
 
-		static int shoot_cooldown = 0;
-		if (input_state.shoot > 0 && shoot_cooldown == 0) {
-			player_shoot(playerbullets);
-			shoot_cooldown = 6;
+		if (player_data.fire_cooldown > 0) {
+			player_data.fire_cooldown--;
 		}
-		else if (shoot_cooldown > 0) {
-			shoot_cooldown--;
+		else if (input_state.shoot > 0) {
+			player_shoot(&playerbullets);
+			player_data.fire_cooldown = 6;
 		}
 
 		/*
@@ -245,11 +217,10 @@ main(int argc, char *argv[])
 		player_data.pos.y += player_data.vel.y;
 
 		/* Update player bullets */
-		struct Bullet *bullet;
-		list_for_each_entry(bullet, playerbullets, link)
+		for_each_bullet(bullet, &playerbullets)
 		{
 			if (bullet->position.y + 6.8f > 540.0f) {
-				list_del(bullet->link);
+				list_del(&bullet->link);
 				free(bullet);
 				continue;
 			}
@@ -313,6 +284,8 @@ main(int argc, char *argv[])
 		 * TODO: Copy contents from draw framebuffer to render framebuffer
 		 * scaled up by 2 times to create a pixelated effect.
 		 */
+		glNamedBufferData(player_position_ubuf, sizeof(Vec2), &player_data.pos, GL_DYNAMIC_DRAW);
+		draw_sprites(player_sprite_varray, player_colour_ubuf, player_position_ubuf, 1);
 		SDL_GL_SwapWindow(window);
 
 		/* Frame advance */

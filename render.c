@@ -1,21 +1,23 @@
+#ifndef _RENDER_C
+#define _RENDER_C
+
 /*
  * Render similar sprites
  */
-void
-draw_sprites(GLuint vertex_array_obj, int nsprites,
-		GLuint position_array_ubuf, GLuint colour_ubuf)
+int
+draw_sprites(GLuint vertex_array, GLuint colour_ubuf, GLuint position_ubuf, int n)
 {
-	if (nsprites < 0)
-		return;
+	if (n < 0)
+		return -1;
 
 	const uint8_t index_data[] = {
 		0, 1, 2, 2, 3, 0
 	};
 
-	glBindBufferBase(GL_UNIFORM_BUFFER, 1, position_array_ubuf);
+	glBindBufferBase(GL_UNIFORM_BUFFER, 1, position_ubuf);
 	glBindBufferBase(GL_UNIFORM_BUFFER, 2, colour_ubuf);
-	glBindVertexArray(vertex_array_obj);
-	glDrawElementsInstanced(GL_TRIANGLES, 6, GL_UNSIGNED_BYTE, index_data, nsprites);
+	glBindVertexArray(vertex_array);
+	glDrawElementsInstanced(GL_TRIANGLES, 6, GL_UNSIGNED_BYTE, index_data, n);
 }
 
 /*
@@ -119,3 +121,5 @@ create_sprite_arrays(GLuint *vertex_arrays, GLuint *vertex_buffers, int size)
 
 	return 0;
 }
+
+#endif /* _RENDER_C */

@@ -1,3 +1,6 @@
+#ifndef _INPUT_C
+#define _INPUT_C
+
 int
 handle_sdl_event(SDL_Event event, SDL_Window *window)
 {
@@ -96,3 +99,5 @@ void
 parse_input()
 {
 }
+
+#endif /* _INPUT_C */

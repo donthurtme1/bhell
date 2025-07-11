@@ -1,7 +1,10 @@
+#ifndef _GAME_C
+#define _GAME_C
+
 #include <stdlib.h>
 
 void
-player_shoot(struct list_head head)
+player_shoot(struct list_head *head)
 {
 	struct Bullet *new = malloc(sizeof(struct Bullet));
 	new->position = player_data.pos;
@@ -12,10 +15,10 @@ void
 spawn_enemy_bullets(Vec2 *bullet_pos, Vec2 *bullet_vel, int *n,
 		Vec2 init_pos, struct AttackData *attack_data)
 {
-	if (*n + attack_data->num_bullets >= 1024)
+	if (*n + attack_data->bullet_count >= 1024)
 		return;
 
-	for (int i = 0; i < attack_data->num_bullets; i++)
+	for (int i = 0; i < attack_data->bullet_count; i++)
 	{
 		bullet_pos[*n].x = init_pos.x;
 		bullet_pos[*n].y = init_pos.y;
@@ -39,7 +42,7 @@ spawn_enemy(struct Entity *enemies[], Vec2 **preset_enemy_positions, int *n)
 	/* Quintuple spread shot */
 	enemies[*n]->attack_data = malloc(sizeof(struct AttackData));
 	enemies[*n]->attack_data->bullet_type = 0;
-	enemies[*n]->attack_data->num_bullets = 5;
+	enemies[*n]->attack_data->bullet_count = 5;
 	enemies[*n]->attack_data->initial_velocities = malloc(sizeof(Vec2) * 5);
 	enemies[*n]->attack_data->initial_accels = NULL;
 	enemies[*n]->attack_data->initial_jerks = NULL;
@@ -83,3 +86,5 @@ collision_test(Vec2 a_pos, Vec2 a_dimensions, Vec2 b_pos, Vec2 b_dimensions)
 		return 0;
 	return 1;
 }
+
+#endif /* _GAME_C */
