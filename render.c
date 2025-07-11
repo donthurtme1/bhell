@@ -20,6 +20,16 @@ draw_sprites(GLuint vertex_array, GLuint colour_ubuf, GLuint position_ubuf, int 
 	glDrawElementsInstanced(GL_TRIANGLES, 6, GL_UNSIGNED_BYTE, index_data, n);
 }
 
+int
+draw_bullets(struct list_head *bullet_list)
+{
+	int n = 0; /* Keep track of number of bullets */
+	for_each_bullet(bullet, bullet_list)
+	{
+		n++;
+	}
+}
+
 /*
  * Load and compile shaders,
  * Returns a GLuint representing a shader program.
