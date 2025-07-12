@@ -250,7 +250,6 @@ main(int argc, char *argv[])
 			if (player_bullets[i].y + 5.2f > 540.0f) {
 				n_player_bullets -= 1;
 				player_bullets[i] = player_bullets[n_player_bullets];
-				continue;
 			}
 
 			player_bullets[i].y += 6.8f;
