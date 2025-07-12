@@ -1,21 +1,60 @@
+#ifndef _RENDER_C
+#define _RENDER_C
+
 /*
- * Render similar sprites
+ * Render similar sprites with a single draw call
  */
 void
-draw_sprites(GLuint vertex_array_obj, int nsprites,
-		GLuint position_array_ubuf, GLuint colour_ubuf)
+draw_sprites(GLuint vertex_array, GLuint colour_ubuf, GLuint position_ubuf, int n)
 {
-	if (nsprites < 0)
-		return;
-
-	const uint8_t index_data[] = {
+	static const uint8_t index_data[] = {
 		0, 1, 2, 2, 3, 0
 	};
 
-	glBindBufferBase(GL_UNIFORM_BUFFER, 1, position_array_ubuf);
+	glBindBufferBase(GL_UNIFORM_BUFFER, 1, position_ubuf);
 	glBindBufferBase(GL_UNIFORM_BUFFER, 2, colour_ubuf);
-	glBindVertexArray(vertex_array_obj);
-	glDrawElementsInstanced(GL_TRIANGLES, 6, GL_UNSIGNED_BYTE, index_data, nsprites);
+	glBindVertexArray(vertex_array);
+	glDrawElementsInstanced(GL_TRIANGLES, 6, GL_UNSIGNED_BYTE, index_data, n);
+}
+
+void
+draw_entities(struct list_head *entity_list,
+		GLuint entities_ubuf, GLuint colour_ubuf, GLuint vert_array)
+{
+	int n = 0; /* Count number of entities */
+	for_each_entity(entity, entity_list)
+		n++;
+
+	Vec2 entity_positions[n];
+	int i = 0;
+	for_each_entity(entity, entity_list)
+	{
+		entity_positions[i] = entity->pos;
+		i++;
+	}
+
+	glNamedBufferData(entities_ubuf, sizeof(Vec2) * n, entity_positions, GL_DYNAMIC_DRAW);
+	draw_sprites(vert_array, colour_ubuf, entities_ubuf, n);
+}
+
+void
+draw_bullets(struct list_head *bullet_list,
+		GLuint bullets_ubuf, GLuint colour_ubuf, GLuint vert_array)
+{
+	int n = 0; /* Count number of bullets */
+	for_each_bullet(bullet, bullet_list)
+		n++;
+
+	Vec2 bullet_positions[n];
+	int i = 0;
+	for_each_bullet(bullet, bullet_list)
+	{
+		bullet_positions[i] = bullet->pos;
+		i++;
+	}
+
+	glNamedBufferData(bullets_ubuf, sizeof(Vec2) * n, bullet_positions, GL_DYNAMIC_DRAW);
+	draw_sprites(vert_array, colour_ubuf, bullets_ubuf, n);
 }
 
 /*
@@ -119,3 +158,5 @@ create_sprite_arrays(GLuint *vertex_arrays, GLuint *vertex_buffers, int size)
 
 	return 0;
 }
+
+#endif /* _RENDER_C */

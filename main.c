@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <time.h>
 #include "shaders.h"
+#include "list.h"
 
 #define GL_GLEXT_PROTOTYPES
 #include <GL/glut.h>
@@ -48,23 +49,33 @@ struct InputState {
  */
 struct AttackData {
 	int bullet_type;
-	int num_bullets;
+	int bullet_count;
+
 	Vec2 *initial_velocities;
 	Vec2 *initial_accels;
 	Vec2 *initial_jerks;
 };
 
 struct Entity {
+	struct list_head link;
+
 	Vec2 pos;
 	Vec2 vel;
 	Vec2 accel;
+
 	int health;
 	int fire_cooldown;
 	struct AttackData *attack_data;
 };
 
+struct Bullet {
+	struct list_head link;
+	Vec2 pos;
+	Vec2 vel;
+};
+
 /*
- * Player variables
+ * Gameplay variables
  */
 struct Entity player_data = {
 	.pos = { 200, 270 },
@@ -72,19 +83,10 @@ struct Entity player_data = {
 	.health = 100,
 	.fire_cooldown = 0,
 };
-Vec2 player_bullets[256];
-int n_player_bullets = 0;
 
-/*
- * Enemy variables
- */
-struct Entity *enemy_array[256];
-int n_enemies = 0;
-Vec2 enemy_entity_positions[256];
-
-Vec2 bullet_positions[1024];
-Vec2 bullet_velocities[1024];
-int n_enemy_bullets = 0;
+struct list_head playerbullets = LIST_HEAD_INIT(playerbullets);
+struct list_head enemybullets = LIST_HEAD_INIT(enemybullets);
+struct list_head enemies = LIST_HEAD_INIT(enemies);
 
 #include "input.c"
 #include "game.c"
@@ -122,8 +124,8 @@ main(int argc, char *argv[])
 	glEnable(GL_SCISSOR_TEST);
 	glDisable(GL_STENCIL_TEST);
 
-	struct { int width, height; } winsize;
-	SDL_GetWindowSize(window, &winsize.width, &winsize.height);
+	struct { int width, height; } win;
+	SDL_GetWindowSize(window, &win.width, &win.height);
 	glViewport(0, 0, 1080, 1920);
 	glScissor(0, 0, 1080, 1920);
 
@@ -138,7 +140,7 @@ main(int argc, char *argv[])
 		   enemy_sprite_varray, enemy_sprite_vbuf;
 	create_sprite_arrays(&player_sprite_varray, &player_sprite_vbuf, 8);
 	create_sprite_arrays(&bullet_sprite_varray, &bullet_sprite_vbuf, 4);
-	create_sprite_arrays(&enemy_sprite_varray, &enemy_sprite_vbuf, 12);
+	create_sprite_arrays(&enemy_sprite_varray, &enemy_sprite_vbuf, 14);
 
 	/*
 	 * Create uniform buffers
@@ -162,33 +164,6 @@ main(int argc, char *argv[])
 	glGenBuffers(1, &enemy_colour_ubuf);
 	glBindBufferBase(GL_UNIFORM_BUFFER, 2, enemy_colour_ubuf);
 	glNamedBufferData(enemy_colour_ubuf, sizeof(colour_rose), colour_rose, GL_STATIC_DRAW);
-
-	/*
-	 * Load textures
-	 */
-	//int texwidth[2], texheight[2], texchannels[2];
-	//unsigned char *texture_data[2];
-	//texture_data[0] = stbi_load("/home/basil/images/gameboy-flower.png",
-	//		&texwidth[0], &texheight[0], &texchannels[0], 0);
-	//texture_data[1] = stbi_load("",
-	//		&texwidth[1], &texheight[1], &texchannels[1], 0);
-
-	//GLuint textures[2];
-	//glGenTextures(2, textures);
-	//for (int i = 0; i < 1; i++)
-	//{
-	//	glActiveTexture(GL_TEXTURE0 + i);
-	//	glBindTexture(GL_TEXTURE_2D, textures[i]);
-
-	//	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-	//	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-	//	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-	//	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-	//	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, texwidth[i], texheight[i],
-	//			0, GL_RGBA, GL_UNSIGNED_BYTE, texture_data[i]);
-	//	glGenerateMipmap(GL_TEXTURE_2D);
-	//}
-
 
 	/*
 	 * Initial setup
@@ -217,24 +192,24 @@ main(int argc, char *argv[])
 				goto end_main_loop;
 		}
 
-		static int shoot_cooldown = 0;
-		if (input_state.shoot > 0 && shoot_cooldown == 0) {
-			player_shoot(player_bullets, &n_player_bullets);
-			shoot_cooldown = 6;
+		if (player_data.fire_cooldown > 0) {
+			player_data.fire_cooldown--;
 		}
-		else if (shoot_cooldown > 0) {
-			shoot_cooldown--;
+		else if (input_state.shoot > 0) {
+			player_shoot(&playerbullets);
+			player_data.fire_cooldown = 6;
 		}
 
 		/*
 		 * Level stuff
 		 */
 		static int level_frame_count = 0;
-		if (level_frame_count % 120 == 0) {
-			spawn_enemy(enemy_array, NULL, &n_enemies);
-			enemy_entity_positions[n_enemies - 1] = enemy_array[n_enemies - 1]->pos;
+		if (level_frame_count < 120)
+			level_frame_count++;
+		else {
+			spawn_enemy(&enemies, NULL);
+			level_frame_count = 0;
 		}
-		level_frame_count++;
 
 		/*
 		 * Physics calculations
@@ -243,93 +218,77 @@ main(int argc, char *argv[])
 		player_data.pos.y += player_data.vel.y;
 
 		/* Update player bullets */
-		for (int i = 0;
-				i < n_player_bullets; /* `n_bullets` should never exceed 256 */
-				i++)
+		for_each_bullet(bullet, &playerbullets)
 		{
-			if (player_bullets[i].y + 5.2f > 540.0f) {
-				n_player_bullets -= 1;
-				player_bullets[i] = player_bullets[n_player_bullets];
+			if (bullet->pos.y + 6.8f > 540.0f) {
+				list_del(&bullet->link);
+				free(bullet);
+				continue;
 			}
 
-			player_bullets[i].y += 6.8f;
-
-			for (int j = 0;
-					j < n_enemies;
-					j++)
-			{
-				if (collision_test(player_bullets[i], (Vec2){ 4, 4 },
-							enemy_array[j]->pos, (Vec2){ 12, 12 }) == 0) {
-					continue;
-				}
-
-				/* Deal damage to enemy */
-				enemy_array[j]->health -= 1;
-				if (enemy_array[j]->health <= 0) {
-					remove_enemy(enemy_array, j, &n_enemies);
-					j--;
-				}
-
-				/* Remove current bullet from player bullet list */
-				n_player_bullets--;
-				player_bullets[i] = player_bullets[n_player_bullets];
-				i--;
-				break;
-			}
+			bullet->pos.y += 6.8f;
 		}
 
 		/* Update enemy entities */
-		for (int i = 0;
-				enemy_array[i] != NULL && i < 256;
-				i++)
+		for_each_entity(enemy, &enemies)
 		{
-			enemy_array[i]->vel.y += enemy_array[i]->accel.y;
+			enemy->vel.x += enemy->accel.x;
+			enemy->vel.y += enemy->accel.y;
+			enemy->pos.x += enemy->vel.x;
+			enemy->pos.y += enemy->vel.y;
 
-			enemy_array[i]->pos.x += enemy_array[i]->vel.x;
-			enemy_array[i]->pos.y += enemy_array[i]->vel.y;
-			enemy_entity_positions[i] = enemy_array[i]->pos;
-
-			if (enemy_array[i]->fire_cooldown > 0)
-				enemy_array[i]->fire_cooldown -= 1;
+			if (enemy->fire_cooldown > 0)
+				enemy->fire_cooldown -= 1;
 			else {
-				spawn_enemy_bullets(bullet_positions, bullet_velocities, &n_enemy_bullets,
-						enemy_array[i]->pos, enemy_array[i]->attack_data);
-				enemy_array[i]->fire_cooldown = 42;
+				spawn_enemy_bullets(&enemybullets, enemy->pos, enemy->attack_data);
+				enemy->fire_cooldown = 50;
 			}
 
-			if (enemy_array[i]->pos.x > 400 || enemy_array[i]->pos.x < 0 ||
-					enemy_array[i]->pos.y > 540 || enemy_array[i]->pos.y < 0)
+			if (enemy->pos.x > 400 || enemy->pos.x < 0 ||
+					enemy->pos.y > 540 || enemy->pos.y < 0)
 			{
-				remove_enemy(enemy_array, i, &n_enemies);
+				list_del(&enemy->link);
+				free(enemy);
+			}
+
+			/* Test bullet collision */
+			for_each_bullet(bullet, &playerbullets)
+			{
+				Vec2 enemy_box = { 14, 14 };
+				Vec2 bullet_box = { 4, 4 };
+				if (collision_test(enemy->pos, enemy_box, bullet->pos, bullet_box) == 0)
+					continue;
+
+				/* Damage calculations */
+				enemy->health -= 1;
+				if (enemy->health <= 0) {
+					list_del(&enemy->link);
+					free(enemy);
+				}
+
+				list_del(&bullet->link);
+				free(bullet);
 			}
 		}
 
 		/* Update enemy bullets */
-		for (int i = 0;
-				i < n_enemy_bullets && i < 1024; /* `n_enemy_bullets` should never exceed 1024 */
-				i++)
+		for_each_bullet(bullet, &enemybullets)
 		{
-			bullet_positions[i].x += bullet_velocities[i].x;
-			bullet_positions[i].y += bullet_velocities[i].y;
+			bullet->pos.x += bullet->vel.x;
+			bullet->pos.y += bullet->vel.y;
 
-			if (bullet_positions[i].x > 400.0f || bullet_positions[i].x < 0.0f ||
-					bullet_positions[i].y > 540.0f || bullet_positions[i].y < 0.0f)
+			if (bullet->pos.x > 400.0f || bullet->pos.x < 0.0f ||
+					bullet->pos.y > 540.0f || bullet->pos.y < 0.0f)
 			{
-				n_enemy_bullets--;
-				bullet_positions[i] = bullet_positions[n_enemy_bullets];
-				bullet_velocities[i] = bullet_velocities[n_enemy_bullets];
-				i--;
+				list_del(&bullet->link);
+				free(bullet);
+				continue;
 			}
 		}
 
 		/*
 		 * Render
 		 */
-		glNamedBufferData(player_position_ubuf, 8, &player_data.pos, GL_DYNAMIC_DRAW);
-		glNamedBufferData(player_bullets_ubuf, n_player_bullets * 8, player_bullets, GL_DYNAMIC_DRAW);
-		glNamedBufferData(enemy_positions_ubuf, n_enemies*8, enemy_entity_positions, GL_DYNAMIC_DRAW);
-		glNamedBufferData(enemy_bullets_ubuf, n_enemy_bullets * 8, bullet_positions, GL_DYNAMIC_DRAW);
-
 		glDisable(GL_SCISSOR_TEST);
 		glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -341,12 +300,12 @@ main(int argc, char *argv[])
 		 * TODO: Copy contents from draw framebuffer to render framebuffer
 		 * scaled up by 2 times to create a pixelated effect.
 		 */
-		/* Render entities */
-		draw_sprites(player_sprite_varray, 1, player_position_ubuf, player_colour_ubuf);
-		draw_sprites(enemy_sprite_varray, n_enemies, enemy_positions_ubuf, enemy_colour_ubuf);
-		/* Render bullets */
-		draw_sprites(bullet_sprite_varray, n_player_bullets, player_bullets_ubuf, player_colour_ubuf);
-		draw_sprites(bullet_sprite_varray, n_enemy_bullets, enemy_bullets_ubuf, enemy_colour_ubuf);
+		glNamedBufferData(player_position_ubuf, sizeof(Vec2), &player_data.pos, GL_DYNAMIC_DRAW);
+		draw_sprites(player_sprite_varray, player_colour_ubuf, player_position_ubuf, 1);
+		draw_bullets(&playerbullets, player_bullets_ubuf, player_colour_ubuf, bullet_sprite_varray);
+
+		draw_entities(&enemies, enemy_positions_ubuf, enemy_colour_ubuf, enemy_sprite_varray);
+		draw_bullets(&enemybullets, enemy_bullets_ubuf, enemy_colour_ubuf, bullet_sprite_varray);
 		SDL_GL_SwapWindow(window);
 
 		/* Frame advance */
