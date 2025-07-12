@@ -532,15 +532,15 @@ static inline void list_splice_tail_init(struct list_head *list,
 
 #define for_each_bullet(pos, head) \
 	for (struct Bullet *pos = list_first_entry(head, struct Bullet, link),	\
-			*__next = list_next_entry(pos, link);								\
+			*__next = list_next_entry(pos, link);							\
 			&pos->link != (head);											\
-			pos = __next, n = list_next_entry(n, link))
+			pos = __next, __next = list_next_entry(__next, link))
 
 #define for_each_entity(pos, head) \
 	for (struct Entity *pos = list_first_entry(head, struct Entity, link),	\
-			*__next = list_next_entry(pos, link);					 			\
+			*__next = list_next_entry(pos, link);					 		\
 			&pos->link != (head);											\
-			pos = __next, n = list_next_entry(n, link))
+			pos = __next, __next = list_next_entry(__next, link))
 
 /**
  * list_for_each_entry_safe_continue - continue list iteration safe against removal

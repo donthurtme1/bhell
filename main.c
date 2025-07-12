@@ -70,8 +70,8 @@ struct Entity {
 
 struct Bullet {
 	struct list_head link;
-	Vec2 position;
-	Vec2 velocity;
+	Vec2 pos;
+	Vec2 vel;
 };
 
 /*
@@ -140,7 +140,7 @@ main(int argc, char *argv[])
 		   enemy_sprite_varray, enemy_sprite_vbuf;
 	create_sprite_arrays(&player_sprite_varray, &player_sprite_vbuf, 8);
 	create_sprite_arrays(&bullet_sprite_varray, &bullet_sprite_vbuf, 4);
-	create_sprite_arrays(&enemy_sprite_varray, &enemy_sprite_vbuf, 12);
+	create_sprite_arrays(&enemy_sprite_varray, &enemy_sprite_vbuf, 14);
 
 	/*
 	 * Create uniform buffers
@@ -203,12 +203,13 @@ main(int argc, char *argv[])
 		/*
 		 * Level stuff
 		 */
-		//static int level_frame_count = 0;
-		//if (level_frame_count % 120 == 0) {
-		//	spawn_enemy(enemy_array, NULL, &n_enemies);
-		//	enemy_entity_positions[n_enemies - 1] = enemy_array[n_enemies - 1]->pos;
-		//}
-		//level_frame_count++;
+		static int level_frame_count = 0;
+		if (level_frame_count < 120)
+			level_frame_count++;
+		else {
+			spawn_enemy(&enemies, NULL);
+			level_frame_count = 0;
+		}
 
 		/*
 		 * Physics calculations
@@ -219,56 +220,71 @@ main(int argc, char *argv[])
 		/* Update player bullets */
 		for_each_bullet(bullet, &playerbullets)
 		{
-			if (bullet->position.y + 6.8f > 540.0f) {
+			if (bullet->pos.y + 6.8f > 540.0f) {
 				list_del(&bullet->link);
 				free(bullet);
 				continue;
 			}
 
-			bullet->position.y += 6.8f;
+			bullet->pos.y += 6.8f;
 		}
 
 		/* Update enemy entities */
-		//for (int i = 0;
-		//		enemy_array[i] != NULL && i < 256;
-		//		i++)
-		//
-		//	enemy_array[i]->vel.y += enemy_array[i]->accel.y;
+		for_each_entity(enemy, &enemies)
+		{
+			enemy->vel.x += enemy->accel.x;
+			enemy->vel.y += enemy->accel.y;
+			enemy->pos.x += enemy->vel.x;
+			enemy->pos.y += enemy->vel.y;
 
-		//	enemy_array[i]->pos.x += enemy_array[i]->vel.x;
-		//	enemy_array[i]->pos.y += enemy_array[i]->vel.y;
-		//	enemy_entity_positions[i] = enemy_array[i]->pos;
+			if (enemy->fire_cooldown > 0)
+				enemy->fire_cooldown -= 1;
+			else {
+				spawn_enemy_bullets(&enemybullets, enemy->pos, enemy->attack_data);
+				enemy->fire_cooldown = 50;
+			}
 
-		//	if (enemy_array[i]->fire_cooldown > 0)
-		//		enemy_array[i]->fire_cooldown -= 1;
-		//	else {
-		//		spawn_enemy_bullets(bullet_positions, bullet_velocities, &n_enemy_bullets,
-		//				enemy_array[i]->pos, enemy_array[i]->attack_data);
-		//		enemy_array[i]->fire_cooldown = 42;
-		//	}
+			if (enemy->pos.x > 400 || enemy->pos.x < 0 ||
+					enemy->pos.y > 540 || enemy->pos.y < 0)
+			{
+				list_del(&enemy->link);
+				free(enemy);
+			}
 
-		//	if (enemy_array[i]->pos.x > 400 || enemy_array[i]->pos.x < 0 ||
-		//			enemy_array[i]->pos.y > 540 || enemy_array[i]->pos.y < 0)
-		//	{
-		//		remove_enemy(enemy_array, i, &n_enemies);
-		//	}
-		//}
+			/* Test bullet collision */
+			for_each_bullet(bullet, &playerbullets)
+			{
+				Vec2 enemy_box = { 14, 14 };
+				Vec2 bullet_box = { 4, 4 };
+				if (collision_test(enemy->pos, enemy_box, bullet->pos, bullet_box) == 0)
+					continue;
+
+				/* Damage calculations */
+				enemy->health -= 1;
+				if (enemy->health <= 0) {
+					list_del(&enemy->link);
+					free(enemy);
+				}
+
+				list_del(&bullet->link);
+				free(bullet);
+			}
+		}
 
 		/* Update enemy bullets */
-		//list_for_each_entry(bullet, enemybullets, link)
-		//{
-		//	bullet->position.x += bullet->velocity.x;
-		//	bullet->position.y += bullet->velocity.y;
+		for_each_bullet(bullet, &enemybullets)
+		{
+			bullet->pos.x += bullet->vel.x;
+			bullet->pos.y += bullet->vel.y;
 
-		//	if (bullet_positions[i].x > 400.0f || bullet_positions[i].x < 0.0f ||
-		//			bullet_positions[i].y > 540.0f || bullet_positions[i].y < 0.0f)
-		//	{
-		//		n_enemy_bullets--;
-		//		bullet_positions[i] = bullet_positions[n_enemy_bullets];
-		//		bullet_velocities[i] = bullet_velocities[n_enemy_bullets];
-		//		i--;
-		//	}
-		//}
+			if (bullet->pos.x > 400.0f || bullet->pos.x < 0.0f ||
+					bullet->pos.y > 540.0f || bullet->pos.y < 0.0f)
+			{
+				list_del(&bullet->link);
+				free(bullet);
+				continue;
+			}
+		}
 
 		/*
 		 * Render
@@ -286,6 +302,10 @@ main(int argc, char *argv[])
 		 */
 		glNamedBufferData(player_position_ubuf, sizeof(Vec2), &player_data.pos, GL_DYNAMIC_DRAW);
 		draw_sprites(player_sprite_varray, player_colour_ubuf, player_position_ubuf, 1);
+		draw_bullets(&playerbullets, player_bullets_ubuf, player_colour_ubuf, bullet_sprite_varray);
+
+		draw_entities(&enemies, enemy_positions_ubuf, enemy_colour_ubuf, enemy_sprite_varray);
+		draw_bullets(&enemybullets, enemy_bullets_ubuf, enemy_colour_ubuf, bullet_sprite_varray);
 		SDL_GL_SwapWindow(window);
 
 		/* Frame advance */

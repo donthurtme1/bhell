@@ -2,15 +2,12 @@
 #define _RENDER_C
 
 /*
- * Render similar sprites
+ * Render similar sprites with a single draw call
  */
-int
+void
 draw_sprites(GLuint vertex_array, GLuint colour_ubuf, GLuint position_ubuf, int n)
 {
-	if (n < 0)
-		return -1;
-
-	const uint8_t index_data[] = {
+	static const uint8_t index_data[] = {
 		0, 1, 2, 2, 3, 0
 	};
 
@@ -20,14 +17,44 @@ draw_sprites(GLuint vertex_array, GLuint colour_ubuf, GLuint position_ubuf, int 
 	glDrawElementsInstanced(GL_TRIANGLES, 6, GL_UNSIGNED_BYTE, index_data, n);
 }
 
-int
-draw_bullets(struct list_head *bullet_list)
+void
+draw_entities(struct list_head *entity_list,
+		GLuint entities_ubuf, GLuint colour_ubuf, GLuint vert_array)
 {
-	int n = 0; /* Keep track of number of bullets */
+	int n = 0; /* Count number of entities */
+	for_each_entity(entity, entity_list)
+		n++;
+
+	Vec2 entity_positions[n];
+	int i = 0;
+	for_each_entity(entity, entity_list)
+	{
+		entity_positions[i] = entity->pos;
+		i++;
+	}
+
+	glNamedBufferData(entities_ubuf, sizeof(Vec2) * n, entity_positions, GL_DYNAMIC_DRAW);
+	draw_sprites(vert_array, colour_ubuf, entities_ubuf, n);
+}
+
+void
+draw_bullets(struct list_head *bullet_list,
+		GLuint bullets_ubuf, GLuint colour_ubuf, GLuint vert_array)
+{
+	int n = 0; /* Count number of bullets */
+	for_each_bullet(bullet, bullet_list)
+		n++;
+
+	Vec2 bullet_positions[n];
+	int i = 0;
 	for_each_bullet(bullet, bullet_list)
 	{
-		n++;
+		bullet_positions[i] = bullet->pos;
+		i++;
 	}
+
+	glNamedBufferData(bullets_ubuf, sizeof(Vec2) * n, bullet_positions, GL_DYNAMIC_DRAW);
+	draw_sprites(vert_array, colour_ubuf, bullets_ubuf, n);
 }
 
 /*
